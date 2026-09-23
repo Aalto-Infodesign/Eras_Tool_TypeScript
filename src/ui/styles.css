@@ -1,0 +1,1170 @@
+:root {
+  --bg: hsl(230 18% 9%);
+  --surface: hsl(230 16% 13%);
+  --surface-2: hsl(230 14% 17%);
+  --line: hsl(230 12% 24%);
+  --text: hsl(230 18% 92%);
+  --muted: hsl(230 10% 60%);
+  --accent: #9473d2;
+  --danger: hsl(6 80% 64%);
+  --radius: 6px;
+  --gap: 12px;
+
+  color-scheme: dark;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  font-size: 13px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app__header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap);
+  padding: var(--gap);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.app__header h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.app__header h1 span {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.app__main {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: var(--gap);
+  padding: var(--gap);
+  min-height: 0;
+  flex: 1;
+}
+
+.app__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  overflow-y: auto;
+  min-height: 0;
+  /*
+   * Without this the column is sized by its widest child rather than by the grid
+   * track, and a single long typology key (they are whole state sequences joined
+   * by dashes) pushes the whole sidebar past the 300px column and out of the
+   * viewport. Every descendant that ellipsises text needs the same release, so
+   * the constraint can actually reach it.
+   */
+  min-width: 0;
+}
+
+.app__chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-height: 0;
+  min-width: 0;
+}
+
+.app__empty {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  color: var(--muted);
+}
+
+/* ---------- loader ---------- */
+
+.loader {
+  flex: 1;
+}
+.loader--dragging {
+  outline: 1px dashed var(--accent);
+  outline-offset: 4px;
+}
+
+.loader__row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.loader__templates {
+  display: flex;
+  gap: 4px;
+}
+.loader__error {
+  color: var(--danger);
+  margin: 8px 0 0;
+}
+
+.mapping {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.mapping--uncertain {
+  border-color: var(--danger);
+}
+.mapping__title {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mapping__title em {
+  color: var(--danger);
+  font-style: normal;
+}
+.mapping__list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.mapping__list li {
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+}
+.mapping__role {
+  color: var(--muted);
+}
+.mapping__column {
+  font-family: ui-monospace, monospace;
+}
+.mapping__note {
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+
+/* ---------- buttons ---------- */
+
+.button {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.button:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.button--primary {
+  background: var(--accent);
+  color: hsl(230 20% 10%);
+  border-color: transparent;
+  font-weight: 600;
+}
+.button[data-selected="true"] {
+  background: var(--accent);
+  color: hsl(230 20% 10%);
+  border-color: transparent;
+}
+
+/* ---------- controls ---------- */
+
+.controls {
+  display: flex;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.controls__group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.controls__group legend {
+  float: left;
+  width: 100%;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.controls__group--wide {
+  min-width: 220px;
+}
+.controls__group--wide input {
+  flex: 1;
+}
+.controls__value {
+  font-family: ui-monospace, monospace;
+  color: var(--muted);
+  min-width: 34px;
+}
+
+/* ---------- panels ---------- */
+
+.panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  /* A collapsed panel is header-only, so it must not be squeezed by a sibling
+     that wants to grow; an open one may shrink and scroll inside its body. */
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.panel__header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 10px;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.panel__header:hover {
+  background: var(--surface-2);
+}
+.panel__header h2 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+/* Pushes the count to the right without a spacer element. */
+.panel__header .panel__count {
+  margin-left: auto;
+}
+
+.panel__chevron {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 120ms ease-out;
+}
+.panel[data-open="true"] .panel__chevron {
+  transform: rotate(90deg);
+}
+
+.panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 10px 10px;
+  min-width: 0;
+}
+
+.panel__count {
+  font-family: ui-monospace, monospace;
+}
+
+/* ---------- filters ---------- */
+
+.panel__badge {
+  font-style: normal;
+  margin-right: 6px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10px;
+}
+
+.chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 2px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+.chip[data-inverted="true"] {
+  border-color: var(--danger);
+}
+.chip__label {
+  white-space: nowrap;
+}
+.chip__invert,
+.chip__remove {
+  background: none;
+  border: none;
+  padding: 0 3px;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+.chip__invert:hover,
+.chip__remove:hover {
+  color: var(--text);
+}
+.chip[data-inverted="true"] .chip__invert {
+  color: var(--danger);
+}
+
+.filter {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.filter__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.filter__head label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter__value {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.filter[data-active="true"] .filter__head {
+  color: var(--accent);
+}
+.filter[data-inverted="true"] .filter__head {
+  color: var(--danger);
+}
+
+.filter__legend {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted);
+}
+.filter__legend em {
+  margin-left: auto;
+  font-style: normal;
+  opacity: 0.7;
+}
+
+/* The whole distribution, faint; the part the filter keeps, lit over it. */
+.distribution {
+  display: block;
+  overflow: visible;
+}
+.distribution__ghost {
+  fill: none;
+  stroke-width: 1;
+  opacity: 0.22;
+}
+.distribution__lit {
+  fill: none;
+  stroke-width: 1.25;
+}
+.distribution__axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.distribution--single {
+  stroke: var(--text);
+}
+.distribution--start {
+  stroke: var(--text);
+}
+.distribution--end {
+  stroke: var(--accent);
+}
+.filter__legend .distribution--start {
+  color: var(--text);
+}
+.filter__legend .distribution--end {
+  color: var(--accent);
+}
+
+.distribution__probe line {
+  stroke: var(--accent);
+  stroke-width: 0.75;
+}
+.distribution__probe circle {
+  fill: var(--accent);
+}
+.distribution__peak {
+  fill: var(--muted);
+  font-size: 9px;
+  font-family: ui-monospace, monospace;
+}
+
+.slider {
+  display: block;
+  touch-action: none;
+  cursor: ew-resize;
+}
+.slider__track {
+  fill: var(--surface-2);
+}
+.slider__range {
+  fill: var(--accent);
+  opacity: 0.35;
+}
+.filter[data-inverted="true"] .slider__range {
+  fill: var(--danger);
+}
+.slider__handle {
+  fill: var(--text);
+  stroke: var(--bg);
+  stroke-width: 1;
+}
+.slider__handle[data-active="true"] {
+  fill: var(--accent);
+}
+
+.filters__axis {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.filters__axis .button:first-child {
+  flex: 1;
+}
+.filters__axis-note {
+  margin: 0;
+  color: var(--accent);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+
+/* ---------- stacked lines ---------- */
+
+.stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stacked__controls {
+  display: flex;
+  gap: 3px;
+}
+.stacked__surface {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: crosshair;
+  overflow: hidden;
+}
+.stacked__readout {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.stacked__readout b {
+  color: var(--accent);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- silhouettes ---------- */
+
+.silhouettes__controls {
+  display: flex;
+  gap: 3px;
+}
+
+.silhouettes__band {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.silhouettes__legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.silhouettes__legend em {
+  font-style: normal;
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+}
+.silhouettes__band-actions {
+  display: flex;
+  gap: 4px;
+}
+.silhouettes__band-actions .button:last-child {
+  flex: 1;
+}
+
+.silhouettes {
+  /* Tall enough for three rows of cards, so the shapes can be compared at a
+     glance, and scrolled rather than grown so the panels below stay reachable. */
+  max-height: 348px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+}
+.silhouettes__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.silhouette {
+  min-width: 0;
+  padding: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  background-color: var(--bg);
+  border-radius: 4px;
+}
+.silhouette__actions {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  height: 16px;
+  /* Hidden until the card is wanted: two icons on every card in a grid of them
+     is noise, and the glyph is what the panel is for. */
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.silhouette:hover .silhouette__actions,
+.silhouette:focus-within .silhouette__actions {
+  opacity: 1;
+}
+
+.silhouette__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  width: 100%;
+  /* Fills whatever the fixed card height leaves after the action row. */
+  flex: 1;
+  min-height: 0;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.silhouette__body:hover {
+  border-color: var(--line);
+}
+.silhouette[data-selected="true"] .silhouette__body {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+}
+
+.silhouette__stats {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Two lines' worth whether or not the second one is there, so the glyphs of
+     filtered and unfiltered cards still line up across a row. */
+  min-height: 24px;
+  line-height: 1.2;
+}
+.silhouette__stat {
+  display: flex;
+  gap: 5px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+.silhouette__stat em {
+  font-style: normal;
+  color: var(--text);
+}
+.silhouette__stat[data-stale="true"] {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+.silhouette__stat--live,
+.silhouette__stat--live em {
+  color: var(--accent);
+}
+
+.glyph {
+  display: block;
+  overflow: visible;
+}
+.glyph__links line {
+  stroke-width: 9;
+  stroke-linecap: round;
+  opacity: 0.45;
+}
+/*
+ * Reordering the rows moves every node and link. These are SVG2 geometry
+ * properties, so a plain CSS transition carries the whole grid from one stacking
+ * to the next without a single animated value crossing the React boundary.
+ * Where a browser does not animate them the glyphs simply snap.
+ */
+.glyph circle,
+.glyph line {
+  transition:
+    cx 180ms ease-out,
+    cy 180ms ease-out,
+    x1 180ms ease-out,
+    y1 180ms ease-out,
+    x2 180ms ease-out,
+    y2 180ms ease-out;
+}
+
+.silhouettes__selection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.silhouettes__chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.silhouettes__chip {
+  display: block;
+  padding: 1px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* ---------- states panel ---------- */
+
+.states__hint {
+  color: var(--muted);
+  margin: 0;
+  font-size: 11px;
+}
+.states__hint--removed {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.states {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.state {
+  display: grid;
+  grid-template-columns: 10px 16px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--surface-2);
+  cursor: grab;
+}
+.state:hover {
+  border-color: var(--line);
+}
+.state[data-dragging="true"] {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+/* The drop marker sits on the edge the dragged row will take. */
+.state[data-dragover="true"] {
+  border-top-color: var(--accent);
+  background: var(--surface);
+}
+
+.state__grip {
+  color: var(--muted);
+  opacity: 0.5;
+  line-height: 1;
+}
+.state__row {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  text-align: right;
+}
+.state__name {
+  font-family: ui-monospace, monospace;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.state__population {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+
+/* Revealed on hover so a dense list stays readable, but always focusable. */
+.state__controls {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+.state:hover .state__controls,
+.state__controls:focus-within {
+  opacity: 1;
+}
+
+.states--removed .state {
+  grid-template-columns: 1fr auto auto;
+  cursor: default;
+  background: none;
+  border-style: dashed;
+  border-color: var(--line);
+  opacity: 0.7;
+}
+.states--removed .state__name {
+  color: var(--muted);
+}
+.states--removed .state__controls {
+  opacity: 1;
+}
+
+/* ---------- perf hud ---------- */
+
+.hud__facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0;
+}
+.hud__facts dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.hud__facts dd {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+}
+
+.hud__timings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.hud__timings li {
+  display: grid;
+  grid-template-columns: 110px 1fr 56px;
+  gap: 6px;
+  align-items: center;
+}
+.hud__label {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  opacity: 0.55;
+  min-width: 2px;
+}
+.hud__bar--reshape {
+  background: var(--danger);
+}
+.hud__ms {
+  font-family: ui-monospace, monospace;
+  text-align: right;
+}
+.hud__note {
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ---------- chart ---------- */
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+}
+
+.chart__surface {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+.chart__canvas,
+.chart__grid,
+.chart__boxplots,
+.chart__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.chart__grid,
+.chart__boxplots,
+.chart__overlay {
+  pointer-events: none;
+}
+
+/* ---------- grid ---------- */
+
+/* Dashed and faint, as the original: present enough to read a row against,
+   quiet enough to leave the density field the loudest thing on the canvas. */
+.chart__rowline {
+  stroke-width: 0.5;
+  stroke-dasharray: 2 1;
+  opacity: 0.5;
+}
+.chart__rowlabel {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  opacity: 0.75;
+}
+
+.chart__decade-line {
+  stroke: var(--text);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.16;
+}
+.chart__decade-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  opacity: 0.8;
+}
+
+/* ---------- state box plots ---------- */
+
+.boxplot__bar {
+  opacity: 0.85;
+}
+.boxplot__median {
+  fill: var(--bg);
+  opacity: 0.9;
+}
+.boxplot__whisker line {
+  stroke-width: 1;
+  opacity: 0.55;
+}
+.boxplot__whisker rect {
+  opacity: 0.8;
+}
+.boxplot__label {
+  font-size: 9px;
+  font-family: ui-monospace, monospace;
+  opacity: 0.7;
+  dominant-baseline: middle;
+}
+
+.chart__highlight-halo {
+  stroke: var(--bg);
+  stroke-width: 5;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+.chart__highlight {
+  stroke: var(--text);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+}
+.chart__highlight--hovered {
+  stroke: var(--accent);
+  stroke-width: 2.25;
+}
+
+.chart__hovered-label {
+  fill: var(--accent);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+
+.chart__stats {
+  display: flex;
+  gap: 14px;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+.chart__stats b {
+  color: var(--text);
+  font-weight: 600;
+}
+.chart__stats-kind {
+  margin-left: auto;
+  color: var(--accent);
+}
+.chart__stats-pending {
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+/* ---------- lumps ---------- */
+
+.chart__lumps,
+.chart__ribbons {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lump {
+  cursor: pointer;
+}
+.lump--extreme {
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+/* Parked with the typology-ribbon layer; see app/features.ts. */
+.ribbon {
+  cursor: pointer;
+}
+.ribbon:hover path {
+  opacity: 0.9;
+}
+.ribbon[data-selected="true"] path {
+  stroke-width: 1.2;
+}
+
+/* ---------- cluster table (parked; see app/features.ts) ---------- */
+
+.clusterbar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.clusterbar__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+
+.table__controls {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.table__controls .button {
+  padding: 3px 7px;
+  font-size: 11px;
+}
+
+.table__head,
+.table__row {
+  display: grid;
+  grid-template-columns: 1fr 64px 42px 48px 42px 14px;
+  gap: 6px;
+  align-items: center;
+  text-align: left;
+}
+.table__head {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.table__body {
+  overflow-y: auto;
+  max-height: 320px;
+  min-height: 120px;
+}
+
+.table__row {
+  width: 100%;
+  padding: 0 4px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-family: ui-monospace, monospace;
+  cursor: pointer;
+}
+.table__row:hover {
+  background: var(--surface-2);
+}
+.table__row[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.table__row[data-pending="true"] {
+  opacity: 0.5;
+}
+.table__row em {
+  font-style: normal;
+  opacity: 0.6;
+  margin-left: 5px;
+}
+.table__key {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.detail__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.detail__head strong {
+  font-family: ui-monospace, monospace;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail__clusters {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.detail__clusters li {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.detail__cluster {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 6px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-family: ui-monospace, monospace;
+  cursor: pointer;
+  text-align: left;
+}
+.detail__cluster:hover {
+  background: var(--surface-2);
+}
+.detail__cluster[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.detail__medoid {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail__size {
+  color: var(--muted);
+}
+.detail__median {
+  color: var(--accent);
+  font-style: normal;
+  font-size: 11px;
+}
+.button--tiny {
+  padding: 2px 6px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+}

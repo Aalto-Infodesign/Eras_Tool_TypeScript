@@ -1,0 +1,608 @@
+[
+  {
+    "FINNGENID": "MOCKID_0",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      24.88543082082334, 53.92214298142703, 77.46198153968749, 98.96200499618277, 112.32107405120507
+    ],
+    "years": [
+      1969.8854308208233, 2023.8075738022503, 2076.3841245211147, 2121.4239865358704,
+      2156.2830790473877
+    ],
+    "diseaseDuration": 12317.669625548272
+  },
+  {
+    "FINNGENID": "MOCKID_1",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      29.135551112639593, 57.32688011358684, 78.78585989668042, 89.3591335832338, 107.28993530278449
+    ],
+    "years": [
+      1974.1355511126396, 2031.4624312262265, 2081.1127400102673, 2113.1449934799143,
+      2141.6490688860185
+    ],
+    "diseaseDuration": 12454.649778194982
+  },
+  {
+    "FINNGENID": "MOCKID_2",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      27.89699381190648, 42.33223692066516, 67.46760711431146, 78.12662216838949, 105.71928547887728
+    ],
+    "years": [
+      1957.8969938119064, 2000.2292307325715, 2039.7998440349766, 2075.594229282701,
+      2113.845907647267
+    ],
+    "diseaseDuration": 12262.960434792121
+  },
+  {
+    "FINNGENID": "MOCKID_3",
+    "trajectory": [
+      "sleep_problems",
+      "dx",
+      "dysautonomia",
+      "gait_tremor_problems",
+      "sleep_problems"
+    ],
+    "SwitchEventAge": [
+      11.93545194222779, 23.239398667292022, 37.20181237673252, 51.33855928773604, 78.4585873735899
+    ],
+    "years": [
+      1971.9354519422277, 1995.1748506095198, 2020.4412110440246, 2048.5403716644687,
+      2089.7971466613258
+    ],
+    "diseaseDuration": 12215.686178582891
+  },
+  {
+    "FINNGENID": "MOCKID_4",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      29.823583553075757, 53.5160402807812, 74.54641792258471, 102.0967240248108, 121.41392336008086
+    ],
+    "years": [
+      1974.8235835530757, 2028.3396238338569, 2073.0624582033656, 2121.6431419473956,
+      2168.510647384892
+    ],
+    "diseaseDuration": 12341.203038475662
+  },
+  {
+    "FINNGENID": "MOCKID_5",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      23.291115374502134, 50.97662234941207, 73.81437102599168, 100.77368188552681,
+      125.68738613356155
+    ],
+    "years": [
+      1953.2911153745022, 2004.2677377239143, 2054.7909933754036, 2104.5880529115184,
+      2156.4610680190885
+    ],
+    "diseaseDuration": 12277.666705128342
+  },
+  {
+    "FINNGENID": "MOCKID_7",
+    "trajectory": ["sleep_problems", "dx", "sleep_problems", "dx", "loss_of_indep"],
+    "SwitchEventAge": [
+      10.177409009459762, 36.42900512757605, 57.69498344160935, 80.25142069414238, 92.71640014272
+    ],
+    "years": [
+      1940.1774090094598, 1976.606414137036, 2024.1239885691855, 2067.946404135752,
+      2102.9678208368623
+    ],
+    "diseaseDuration": 12179.768440824048
+  },
+  {
+    "FINNGENID": "MOCKID_8",
+    "trajectory": [
+      "sleep_problems",
+      "dx",
+      "dysautonomia",
+      "gait_tremor_problems",
+      "sleep_problems"
+    ],
+    "SwitchEventAge": [
+      29.829604138658837, 46.292067246089644, 73.10844287941597, 98.68339702242777,
+      127.98880674213612
+    ],
+    "years": [
+      1989.8296041386589, 2036.1216713847484, 2079.4005101255057, 2131.791839901844,
+      2186.672203764564
+    ],
+    "diseaseDuration": 12413.64543345398
+  },
+  {
+    "FINNGENID": "MOCKID_9",
+    "trajectory": [
+      "sleep_problems",
+      "loss_of_indep",
+      "dysautonomia",
+      "gait_tremor_problems",
+      "loss_of_indep"
+    ],
+    "SwitchEventAge": [
+      19.431123342676496, 40.40143881525084, 58.950212495458295, 72.18646013905672,
+      82.65727569082023
+    ],
+    "years": [
+      1949.4311233426765, 1989.8325621579274, 2029.3516513107093, 2061.136672634515,
+      2084.843735829877
+    ],
+    "diseaseDuration": 12199.439481105583
+  },
+  {
+    "FINNGENID": "MOCKID_10",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      24.739233625487707, 48.08910965955312, 69.78602312601481, 82.0346984483002, 103.08679008591157
+    ],
+    "years": [
+      1969.7392336254877, 2017.8283432850408, 2062.875132785568, 2096.820721574315,
+      2130.121488534212
+    ],
+    "diseaseDuration": 12374.205641378938
+  },
+  {
+    "FINNGENID": "MOCKID_11",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      20.617055832585777, 37.61184674508222, 62.9380033047474, 72.97329257377568, 90.12976547027247
+    ],
+    "years": [
+      1950.6170558325857, 1988.228902577668, 2030.5498500498295, 2065.911295878523,
+      2093.1030580440483
+    ],
+    "diseaseDuration": 12158.960012432482
+  },
+  {
+    "FINNGENID": "MOCKID_12",
+    "trajectory": ["loss_of_indep", "dx"],
+    "SwitchEventAge": [22.14355404668506, 51.90182051982831],
+    "years": [1952.143554046685, 2004.0453745665134]
+  },
+  {
+    "FINNGENID": "MOCKID_13",
+    "trajectory": ["sleep_problems", "dx"],
+    "SwitchEventAge": [12.340497881606431, 29.849091896697196],
+    "years": [1957.3404978816063, 1987.1895897783036]
+  },
+  {
+    "FINNGENID": "MOCKID_15",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      23.25130911685235, 43.67157017769817, 70.92690097356316, 85.53972338271628, 112.2471566529592
+    ],
+    "years": [
+      1983.2513091168523, 2026.9228792945505, 2074.598471151261, 2116.4666243562797,
+      2157.7868800356755
+    ],
+    "diseaseDuration": 12433.62463510588
+  },
+  {
+    "FINNGENID": "MOCKID_16",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      20.25321364888112, 32.6865660079164, 53.33249627477869, 74.11603324354523, 86.43498682430737
+    ],
+    "years": [
+      1965.2532136488812, 1997.9397796567976, 2031.0190622826951, 2072.448529518324,
+      2105.5510200678527
+    ],
+    "diseaseDuration": 12277.762625242403
+  },
+  {
+    "FINNGENID": "MOCKID_17",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      17.27292367402962, 39.967367551214075, 64.97993083967711, 77.03861939029507, 91.97189723757671
+    ],
+    "years": [
+      1947.2729236740297, 1987.2402912252437, 2034.947298390891, 2072.0185502299723,
+      2099.0105166278718
+    ],
+    "diseaseDuration": 12127.729871373253
+  },
+  {
+    "FINNGENID": "MOCKID_18",
+    "trajectory": [
+      "sleep_problems",
+      "dx",
+      "gait_tremor_problems",
+      "sleep_problems",
+      "loss_of_indep"
+    ],
+    "SwitchEventAge": [
+      19.248414615312267, 33.295265850377014, 53.65381055102006, 64.99502142385661,
+      79.66774632434591
+    ],
+    "years": [
+      1964.2484146153122, 1997.5436804656892, 2031.9490764013972, 2063.6488319748764,
+      2089.6627677482024
+    ],
+    "diseaseDuration": 12179.001847606874
+  },
+  {
+    "FINNGENID": "MOCKID_19",
+    "trajectory": [
+      "sleep_problems",
+      "dx",
+      "dysautonomia",
+      "gait_tremor_problems",
+      "sleep_problems"
+    ],
+    "SwitchEventAge": [
+      22.238926483383185, 51.34694588301368, 70.3783774883652, 96.29644318396956, 123.06023434338766
+    ],
+    "years": [
+      1952.2389264833832, 2003.5858723663969, 2051.725323371379, 2096.6748206723346,
+      2149.356677527357
+    ],
+    "diseaseDuration": 12305.306943792231
+  },
+  {
+    "FINNGENID": "MOCKID_20",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      29.60147872955379, 47.03147268526161, 62.66341204098303, 77.67744297689251, 102.10990681823353
+    ],
+    "years": [
+      1974.6014787295537, 2021.6329514148154, 2054.6948847262447, 2085.3408550178756,
+      2124.787349795126
+    ],
+    "diseaseDuration": 12315.752404409859
+  },
+  {
+    "FINNGENID": "MOCKID_21",
+    "trajectory": [
+      "sleep_problems",
+      "dx",
+      "gait_tremor_problems",
+      "sleep_problems",
+      "loss_of_indep"
+    ],
+    "SwitchEventAge": [
+      28.371703370131478, 56.51253618029657, 70.24752335428613, 95.06708150207847,
+      112.13927174853285
+    ],
+    "years": [
+      1973.3717033701314, 2029.884239550428, 2071.7600595345825, 2110.3146048563644,
+      2152.2063532506113
+    ],
+    "diseaseDuration": 12489.743313812729
+  },
+  {
+    "FINNGENID": "MOCKID_22",
+    "trajectory": ["sleep_problems"],
+    "SwitchEventAge": [12.060919038208748],
+    "years": [1957.0609190382088]
+  },
+  {
+    "FINNGENID": "MOCKID_23",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "dx"],
+    "SwitchEventAge": [
+      13.058631807605664, 33.95438228913997, 63.76890531991659, 83.96668388795418,
+      107.05154799338555
+    ],
+    "years": [
+      1958.0586318076057, 1992.0130140967458, 2042.7232876090566, 2092.735589207871,
+      2136.01823188134
+    ],
+    "diseaseDuration": 12314.28434381049
+  },
+  {
+    "FINNGENID": "MOCKID_24",
+    "trajectory": [
+      "gait_tremor_problems",
+      "dx",
+      "dysautonomia",
+      "gait_tremor_problems",
+      "loss_of_indep"
+    ],
+    "SwitchEventAge": [
+      23.83507856839852, 48.43575089229216, 74.57489021577594, 93.03989126739538, 115.3736781490127
+    ],
+    "years": [
+      1953.8350785683986, 2002.2708294606907, 2053.010641108068, 2097.6147814831716,
+      2138.413569416408
+    ],
+    "diseaseDuration": 12383.558469453143
+  },
+  {
+    "FINNGENID": "MOCKID_25",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      12.80338402917933, 24.579845891336355, 36.81234392589075, 61.70589330426837, 72.310139804456
+    ],
+    "years": [
+      1942.8033840291794, 1967.3832299205158, 1991.392189817227, 2028.518237230159,
+      2064.0160331087245
+    ],
+    "diseaseDuration": 12058.12910721453
+  },
+  {
+    "FINNGENID": "MOCKID_26",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      11.530912946597091, 38.976308763781056, 55.78619690715718, 79.55107720028512,
+      98.48821573247277
+    ],
+    "years": [
+      1941.530912946597, 1980.5072217103782, 2024.7625056709383, 2065.337274107442,
+      2108.0392929327577
+    ],
+    "diseaseDuration": 12100.684429078492
+  },
+  {
+    "FINNGENID": "MOCKID_27",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      15.654482145143046, 45.29478018626957, 68.91246842331162, 80.654453835169, 98.64455639667185
+    ],
+    "years": [
+      1945.654482145143, 1990.9492623314125, 2044.207248609581, 2079.5669222584806,
+      2109.299010231841
+    ],
+    "diseaseDuration": 12115.331407721602
+  },
+  {
+    "FINNGENID": "MOCKID_28",
+    "trajectory": ["sleep_problems", "dx"],
+    "SwitchEventAge": [25.16388727257937, 38.56571998619922],
+    "years": [1970.1638872725794, 2008.7296072587785]
+  },
+  {
+    "FINNGENID": "MOCKID_29",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      20.247016845674068, 44.87073783881946, 73.58375597066109, 103.37940681661493,
+      123.56322595941572
+    ],
+    "years": [
+      1965.2470168456741, 2010.1177546844935, 2063.4544938094805, 2121.963162787276,
+      2171.9426327760307
+    ],
+    "diseaseDuration": 12396.179554712435
+  },
+  {
+    "FINNGENID": "MOCKID_30",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      20.61130185211475, 32.075152868001574, 55.20360346039098, 67.34212918148182, 95.92619170275225
+    ],
+    "years": [
+      1965.6113018521148, 1997.6864547201164, 2032.2787563283925, 2067.5457326418727,
+      2108.268320884234
+    ],
+    "diseaseDuration": 12203.669322755124
+  },
+  {
+    "FINNGENID": "MOCKID_31",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "dysautonomia"],
+    "SwitchEventAge": [
+      12.275818636941157, 33.003303751868685, 45.450822538673755, 60.542815643311485,
+      78.63307390118817
+    ],
+    "years": [
+      1957.2758186369413, 1990.27912238881, 2023.4541262905425, 2050.9936381819853,
+      2084.1758895444996
+    ],
+    "diseaseDuration": 12096.45771743159
+  },
+  {
+    "FINNGENID": "MOCKID_32",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      27.51129889359424, 56.11307393466856, 82.4529138340753, 110.32517835929382, 122.73915251074034
+    ],
+    "years": [
+      1957.5112988935941, 2013.6243728282627, 2068.565987768744, 2122.778092193369,
+      2163.064330870034
+    ],
+    "diseaseDuration": 12488.60841342404
+  },
+  {
+    "FINNGENID": "MOCKID_33",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      28.023426196067327, 40.514045928895214, 66.57921688587187, 91.10449190733615, 117.734557182688
+    ],
+    "years": [
+      1973.0234261960672, 2013.5374721249625, 2052.093262814767, 2102.683708793208,
+      2153.839049090024
+    ],
+    "diseaseDuration": 12308.714391143993
+  },
+  {
+    "FINNGENID": "MOCKID_34",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      16.228824599475935, 33.3889504588157, 55.27275864647777, 65.4180814996517, 94.20578673100941
+    ],
+    "years": [
+      1946.228824599476, 1979.6177750582917, 2018.6617091052935, 2050.6908401461296,
+      2089.623868230661
+    ],
+    "diseaseDuration": 12135.513857285981
+  },
+  {
+    "FINNGENID": "MOCKID_35",
+    "trajectory": [
+      "sleep_problems",
+      "dx",
+      "loss_of_indep",
+      "gait_tremor_problems",
+      "loss_of_indep"
+    ],
+    "SwitchEventAge": [
+      19.553750238255446, 48.404638231557314, 60.437241626788804, 76.14601943179363,
+      104.66828864611685
+    ],
+    "years": [
+      1979.5537502382554, 2027.9583884698127, 2068.841879858346, 2096.583261058582,
+      2140.8143080779105
+    ],
+    "diseaseDuration": 12410.33484876149
+  },
+  {
+    "FINNGENID": "MOCKID_36",
+    "trajectory": ["loss_of_indep", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      28.662225347715555, 39.63716040904947, 60.34626441230127, 82.80687922146643, 95.48100393619248
+    ],
+    "years": [
+      1973.6622253477155, 2013.299385756765, 2044.9834248213508, 2088.1531436337677,
+      2123.287883157659
+    ],
+    "diseaseDuration": 12366.673945874918
+  },
+  {
+    "FINNGENID": "MOCKID_37",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      23.45061300589179, 42.87209069461406, 59.332650481843345, 77.14899870304653, 96.56353491847398
+    ],
+    "years": [
+      1968.4506130058917, 2011.3227037005058, 2047.2047411764574, 2081.48164918489,
+      2118.7125336215204
+    ],
+    "diseaseDuration": 12308.653889874156
+  },
+  {
+    "FINNGENID": "MOCKID_38",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      26.151953867751768, 43.892091268591884, 60.491643450703066, 75.80801554478398,
+      92.5007838420944
+    ],
+    "years": [
+      1956.1519538677517, 2000.0440451363436, 2034.383734719295, 2066.299658995487,
+      2098.3087993868785
+    ],
+    "diseaseDuration": 12221.487851101241
+  },
+  {
+    "FINNGENID": "MOCKID_39",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      16.46167017714353, 39.53109111552914, 64.56794745668542, 86.42299477992702, 115.97428337275414
+    ],
+    "years": [
+      1946.4616701771436, 1985.9927612926726, 2034.0990385722146, 2080.990942236612,
+      2132.3972781526813
+    ],
+    "diseaseDuration": 12260.932632667937
+  },
+  {
+    "FINNGENID": "MOCKID_40",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      23.08955992806348, 36.892508274473315, 50.66992476924517, 73.6145821990527, 100.02570217695704
+    ],
+    "years": [
+      1968.0895599280634, 2004.9820682025368, 2032.5624330437186, 2069.2845069682976,
+      2118.6402843760097
+    ],
+    "diseaseDuration": 12161.64841244669
+  },
+  {
+    "FINNGENID": "MOCKID_41",
+    "trajectory": [
+      "sleep_problems",
+      "dx",
+      "gait_tremor_problems",
+      "sleep_problems",
+      "loss_of_indep"
+    ],
+    "SwitchEventAge": [
+      17.555927351465996, 36.89268527134565, 58.8111123402664, 71.74562551288241, 100.39600175828586
+    ],
+    "years": [
+      1962.555927351466, 1999.4486126228117, 2040.7037976116121, 2075.556737853149,
+      2117.141627271168
+    ],
+    "diseaseDuration": 12270.963440563355
+  },
+  {
+    "FINNGENID": "MOCKID_42",
+    "trajectory": ["dx", "dysautonomia", "dx", "gait_tremor_problems", "dysautonomia"],
+    "SwitchEventAge": [
+      11.148350986068142, 23.17898299796398, 41.198999975470585, 67.76845472806983, 81.8798553195404
+    ],
+    "years": [
+      1956.1483509860682, 1979.327333984032, 2009.3779829734344, 2053.9674547035406,
+      2094.6483100476103
+    ],
+    "diseaseDuration": 12188.117742742297
+  },
+  {
+    "FINNGENID": "MOCKID_43",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      21.146344120405928, 39.64364576817623, 52.44012579978207, 78.10972139942989, 100.7829009937625
+    ],
+    "years": [
+      1951.146344120406, 1990.789989888582, 2022.0837715679581, 2060.549847199212,
+      2108.8926223931926
+    ],
+    "diseaseDuration": 12124.252565057934
+  },
+  {
+    "FINNGENID": "MOCKID_44",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      19.166196511302026, 29.78252290606475, 46.390163845182684, 61.445312957306456,
+      76.41048833474657
+    ],
+    "years": [
+      1964.1661965113021, 1993.9487194173669, 2021.1726867512475, 2052.835476802489,
+      2082.855801292053
+    ],
+    "diseaseDuration": 12167.814357576948
+  },
+  {
+    "FINNGENID": "MOCKID_45",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "sleep_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      12.846495250695082, 36.66767227463974, 57.73651323289882, 70.75055376449697, 97.49744801147335
+    ],
+    "years": [
+      1957.8464952506952, 1994.5141675253349, 2039.4041855075386, 2073.4870669973957,
+      2113.2480017759704
+    ],
+    "diseaseDuration": 12251.986984054329
+  },
+  {
+    "FINNGENID": "MOCKID_47",
+    "trajectory": ["dx", "dysautonomia", "dx", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      25.32484841933246, 47.66206915608117, 74.31713281394852, 89.8991860706056, 108.43491173698852
+    ],
+    "years": [
+      1970.3248484193325, 2017.9869175754136, 2066.97920197003, 2109.216318884554, 2143.334097807594
+    ],
+    "diseaseDuration": 12451.175482464518
+  },
+  {
+    "FINNGENID": "MOCKID_48",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      22.244671384924015, 41.45997269334711, 69.83995414032029, 89.54366212650399,
+      102.87300174383292
+    ],
+    "years": [
+      1967.244671384924, 2008.704644078271, 2056.2999268336675, 2104.383616266824, 2137.416663870337
+    ],
+    "diseaseDuration": 12378.433138700846
+  },
+  {
+    "FINNGENID": "MOCKID_49",
+    "trajectory": ["sleep_problems", "dx", "dysautonomia", "gait_tremor_problems", "loss_of_indep"],
+    "SwitchEventAge": [
+      16.312909119727752, 39.64623187440962, 66.93845288789484, 92.84733555479548,
+      111.71077342087551
+    ],
+    "years": [
+      1961.3129091197277, 2000.9591409941372, 2051.5846847623043, 2104.7857884426903,
+      2149.558108975671
+    ],
+    "diseaseDuration": 12229.513541414259
+  }
+]
