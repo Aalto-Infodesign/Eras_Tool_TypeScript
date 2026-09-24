@@ -58,6 +58,9 @@ export type ColorSource =
       readonly unclustered: readonly [number, number, number]
     }
 
+/** Half-width of a single-event patient's mark, as a fraction of the axis extent. */
+const SINGLE_EVENT_MARK = 0.002
+
 export interface GeometryOptions {
   readonly axis: XAxis
   readonly color: ColorSource
@@ -80,7 +83,10 @@ export function buildGeometry(
   let capacity = 0
   for (let i = 0; i < patients.length; i++) {
     const p = patients[i] as number
-    capacity += (store.offsets[p + 1] as number) - (store.offsets[p] as number)
+    const events = (store.offsets[p + 1] as number) - (store.offsets[p] as number)
+    // `events - 1` links, except for a patient with a single event, who gets one
+    // mark instead. See the emit loop below.
+    capacity += events === 0 ? 0 : events === 1 ? 1 : events - 1
   }
 
   const positions = new Float32Array(capacity * 4)
@@ -92,6 +98,18 @@ export function buildGeometry(
   const { color, durationRange } = options
   const paletteBytes = color.palette.bytes
 
+  /*
+   * Half-width of the single-event mark, in data units.
+   *
+   * Taken from the dataset's extent rather than from the current view, because
+   * geometry is built once and the x domain moves under it (fit-axis, reset).
+   * The trade is that zooming in magnifies the mark like any other x measure;
+   * keeping it a constant number of pixels would mean a per-vertex flag and a
+   * branch in the vertex shader, which is a lot of machinery for a tick.
+   */
+  const extent = options.axis === "age" ? store.extents.age : store.extents.year
+  const mark = (extent[1] - extent[0]) * SINGLE_EVENT_MARK
+
   let s = 0
 
   // Per-patient state the emitter reads. Hoisted so the emitter is one closure
@@ -101,8 +119,14 @@ export function buildGeometry(
   let clusterG = 0
   let clusterB = 0
 
-  /** Writes one segment from event `from` to event `to` (`from === to` = a stop). */
-  const emit = (from: number, to: number): void => {
+  /**
+   * Writes one segment from event `from` to event `to`.
+   *
+   * `spread` widens a segment symmetrically in x. It is zero for a real link,
+   * whose endpoints are where the data puts them, and non-zero only for the mark
+   * that stands in for a patient with a single event.
+   */
+  const emit = (from: number, to: number, spread = 0): void => {
     // Duration is measured between the events actually linked, so a segment that
     // spans a spliced-out state is judged on the gap it really covers.
     if (durationRange !== null && durationRange !== undefined && from !== to) {
@@ -114,9 +138,9 @@ export function buildGeometry(
     const targetState = store.stateIds[to] as number
 
     const pos = s * 4
-    positions[pos + 0] = xs[from] as number
+    positions[pos + 0] = (xs[from] as number) - spread
     positions[pos + 1] = sourceState
-    positions[pos + 2] = xs[to] as number
+    positions[pos + 2] = (xs[to] as number) + spread
     positions[pos + 3] = targetState
 
     const col = s * 8
@@ -169,15 +193,31 @@ export function buildGeometry(
       }
     }
 
-    // Each event links to the next; the last links to itself, which is the
-    // store's stop convention. States removed by the user are already gone from
-    // the store (see `model/reshape.ts`), so there is nothing to skip here.
+    /*
+     * Each event links to the next. States removed by the user are already gone
+     * from the store (see `model/reshape.ts`), so there is nothing to skip here.
+     *
+     * The store closes every patient with a self-link onto their last event —
+     * its stop convention, which the lump layer reads as "where trajectories
+     * come to rest". This layer does **not** emit it. Both ends of a self-link
+     * land on the same point, and a zero-length line draws nothing: `gl.LINES`
+     * rasterises no fragments for it and Canvas2D's `butt` cap gives it no
+     * width. It was invisible, unpickable, and 16% of the vertex buffer on the
+     * 25k dataset — a line's own endpoint already shows where it stopped.
+     *
+     * A patient with a *single* event is the exception: the self-link is all
+     * they have, so dropping it would erase them from the chart entirely. They
+     * get a short horizontal mark centred on their one event instead, which is
+     * both visible and pickable. In the 25k dataset that is 753 people, and the
+     * second-largest typology is made of nothing else — selecting it drew an
+     * empty chart.
+     */
     let prev = -1
     for (let e = start; e < end; e++) {
       if (prev !== -1) emit(prev, e)
       prev = e
     }
-    if (prev !== -1) emit(prev, prev)
+    if (end - start === 1) emit(start, start, mark)
   }
 
   // `subarray` keeps the views pointing at the single allocation above — no copy

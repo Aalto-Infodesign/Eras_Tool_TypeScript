@@ -264,7 +264,7 @@ describe("geometry", () => {
   const rowOf = rowLookup(store.stateNames.length, order)
   const palette = buildPalette(store.stateNames.length)
 
-  it("emits one segment per event with source and target colours", () => {
+  it("emits one segment per link with source and target colours", () => {
     const selection = new Selection(store.patientCount)
     const geometry = buildGeometry(store, selection.indices(), {
       axis: "age",
@@ -272,8 +272,10 @@ describe("geometry", () => {
       durationRange: null,
     })
 
-    expect(geometry.segmentCount).toBe(store.eventCount)
-    expect(geometry.positions).toHaveLength(store.eventCount * 4)
+    // One per link, i.e. one fewer than the events of each patient — the
+    // store's closing self link onto the last event is not drawn.
+    expect(geometry.segmentCount).toBe(store.eventCount - store.patientCount)
+    expect(geometry.positions).toHaveLength(geometry.segmentCount * 4)
 
     // P1's first segment: a at 25 → b at 53, carrying *state ids*, not rows.
     const a = store.stateNames.indexOf("a")
@@ -284,7 +286,7 @@ describe("geometry", () => {
     expect(Array.from(geometry.colors.slice(4, 7))).toEqual(Array.from(palette.bytes.slice(4, 7)))
   })
 
-  it("closes each patient with a self-segment", () => {
+  it("draws no zero-length segment for a patient's last event", () => {
     const selection = new Selection(store.patientCount)
     const geometry = buildGeometry(store, selection.indices(), {
       axis: "age",
@@ -292,9 +294,51 @@ describe("geometry", () => {
       durationRange: null,
     })
 
-    // P1's last event: c → c at age 65.
-    const c = store.stateNames.indexOf("c")
-    expect(Array.from(geometry.positions.slice(8, 12))).toEqual([65, c, 65, c])
+    // A zero-length line rasterises nothing under gl.LINES and gets no width
+    // from Canvas2D's `butt` cap, so emitting one only inflates the buffer.
+    for (let s = 0; s < geometry.segmentCount; s++) {
+      const p = s * 4
+      const isPoint =
+        geometry.positions[p] === geometry.positions[p + 2] &&
+        geometry.positions[p + 1] === geometry.positions[p + 3]
+      expect(isPoint).toBe(false)
+    }
+  })
+
+  it("gives a patient with a single event a visible mark", () => {
+    // Otherwise they vanish: their whole trajectory is the closing self link,
+    // and dropping it would erase them from the chart.
+    const one = buildStore([
+      {
+        id: "solo",
+        trajectory: ["a"],
+        switchEventAge: [40],
+        years: [2000],
+        diseaseDuration: 0,
+      },
+      {
+        id: "pair",
+        trajectory: ["a", "b"],
+        switchEventAge: [20, 60],
+        years: [1980, 2020],
+        diseaseDuration: 40,
+      },
+    ])
+    const geometry = buildGeometry(one, Uint32Array.of(0), {
+      axis: "age",
+      color: { kind: "state", palette: buildPalette(one.stateNames.length) },
+      durationRange: null,
+    })
+
+    expect(geometry.segmentCount).toBe(1)
+    const [x0, , x1] = Array.from(geometry.positions)
+    expect(x1 as number).toBeGreaterThan(x0 as number)
+    // Centred on the event, and small next to the axis it sits on.
+    expect(((x0 as number) + (x1 as number)) / 2).toBeCloseTo(40)
+    expect((x1 as number) - (x0 as number)).toBeLessThan(
+      (one.extents.age[1] - one.extents.age[0]) * 0.05,
+    )
+    expect(geometry.segmentPatient[0]).toBe(0)
   })
 
   it("only emits segments for selected patients", () => {
@@ -307,7 +351,7 @@ describe("geometry", () => {
       durationRange: null,
     })
 
-    expect(geometry.segmentCount).toBe(2)
+    expect(geometry.segmentCount).toBe(1)
     expect(new Set(geometry.segmentPatient)).toEqual(new Set([1]))
   })
 

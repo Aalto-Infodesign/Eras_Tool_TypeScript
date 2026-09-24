@@ -45,18 +45,15 @@ describe("splicing a state out of the store", () => {
   it("links across the gap instead of leaving loose ends", () => {
     const store = buildStore(abc)
 
-    // a→b, b→c, and c's closing self link.
+    // a→b and b→c. The store's closing self link onto c is not drawn: it has
+    // zero length, so neither backend rasterises it.
     expect(segments(geometryOf(store))).toEqual([
       [20, 30],
       [30, 40],
-      [40, 40],
     ])
 
     const spliced = spliceStates(store, maskOf(store, "b"))
-    expect(segments(geometryOf(spliced))).toEqual([
-      [20, 40],
-      [40, 40],
-    ])
+    expect(segments(geometryOf(spliced))).toEqual([[20, 40]])
   })
 
   it("recomputes durations across what was removed", () => {

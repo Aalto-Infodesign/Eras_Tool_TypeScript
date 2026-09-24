@@ -220,6 +220,9 @@ body {
   letter-spacing: 0.04em;
   margin-bottom: 4px;
 }
+.controls__group[disabled] {
+  opacity: 0.4;
+}
 .controls__group--wide {
   min-width: 220px;
 }

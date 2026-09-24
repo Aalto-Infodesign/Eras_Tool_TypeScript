@@ -14,10 +14,13 @@
  * thousands of typologies streamed thousands of updates into a side panel that
  * could not hold them.
  *
- * Flip this back on to remount the whole path; nothing else has to change in the
- * store or the side panel. The chart is a separate matter: `useChartLayers`
- * builds only the simple layers now, so the cluster-derived ones (colour by
- * cluster, medoid spines, and the median-path ribbons in `ui/RibbonLayer.tsx`,
- * all of which are intact) would need rewiring there.
+ * Flip this back on to remount the whole path: a run starts on load, the cluster
+ * table returns to the side panel, and the chart offers **Medoids** as a third
+ * layer beside Lines and Lumps — one spine per cluster, wired through
+ * `useChartLayers` like the other two and scoped by the cluster selection.
+ *
+ * Still unwired, and still intact: colouring the bulk layer by cluster
+ * (`ColorSource` already has the case) and the median-path ribbons in
+ * `ui/RibbonLayer.tsx`.
  */
 export const CLUSTERING_ENABLED: boolean = false

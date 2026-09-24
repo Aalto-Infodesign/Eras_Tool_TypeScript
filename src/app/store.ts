@@ -46,10 +46,13 @@ export type ClusterStatus = "idle" | "running" | "paused" | "done" | "error"
 /** What the bulk layer is coloured by. Only `state` is reachable while clustering is parked. */
 export type ColorBy = "state" | "cluster"
 /**
- * Which reading the chart shows. The two are alternatives, not a stack: lumps
- * replace the hairlines rather than sitting over them, as in the original.
+ * Which reading the chart shows. These are alternatives, not a stack: lumps
+ * replace the hairlines rather than sitting over them, as in the original, and
+ * the medoid spines replace both with one line per cluster.
+ *
+ * `medoids` is only reachable while clustering is on — see `app/features.ts`.
  */
-export type ChartLayer = "lines" | "lumps"
+export type ChartLayer = "lines" | "lumps" | "medoids"
 
 interface ErasState {
   status: LoadStatus
@@ -367,6 +370,9 @@ export const useEras = create<ErasState>()((set, get) => {
       clusterProgress: { done: 0, total: 0 },
       clusterError: null,
       selectedClusters: [],
+      // The medoid layer has nothing to draw until the new run produces one,
+      // and an empty chart reads as a bug rather than as "still working".
+      chartLayer: get().chartLayer === "medoids" ? "lines" : get().chartLayer,
     })
 
     // Clustering ran once here, over the whole dataset. It is parked behind
@@ -627,6 +633,10 @@ export const useEras = create<ErasState>()((set, get) => {
       set({ colorBy })
     },
     setChartLayer(chartLayer) {
+      // Medoids need a run behind them. Nothing else in the app can put the
+      // chart into a layer whose data has gone, so the guard lives here rather
+      // than as a fallback in the render path.
+      if (chartLayer === "medoids" && (!CLUSTERING_ENABLED || get().clusterRun === null)) return
       set({ chartLayer })
     },
     setShowMedoids(showMedoids) {

@@ -1,3 +1,4 @@
+import { CLUSTERING_ENABLED } from "../app/features.ts"
 import { useEras, type ChartLayer } from "../app/store.ts"
 import type { RendererKind } from "../core/render/Renderer.ts"
 import type { XAxis } from "../core/render/geometry.ts"
@@ -15,6 +16,9 @@ const BACKENDS: readonly { value: RendererKind; label: string }[] = [
 const LAYERS: readonly { value: ChartLayer; label: string }[] = [
   { value: "lines", label: "Lines" },
   { value: "lumps", label: "Lumps" },
+  // Only ever offered with clustering on, and only once a run has produced
+  // something — see `app/features.ts`.
+  { value: "medoids", label: "Medoids" },
 ]
 
 export function ControlBar(): React.JSX.Element {
@@ -27,6 +31,10 @@ export function ControlBar(): React.JSX.Element {
 
   const chartLayer = useEras((s) => s.chartLayer)
   const setChartLayer = useEras((s) => s.setChartLayer)
+  const clusterRun = useEras((s) => s.clusterRun)
+  const clusterStatus = useEras((s) => s.clusterStatus)
+
+  const hasClusters = clusterRun !== null && clusterRun.clusters.length > 0
 
   return (
     <div className="controls">
@@ -62,20 +70,37 @@ export function ControlBar(): React.JSX.Element {
 
       <fieldset className="controls__group">
         <legend>Layer</legend>
-        {LAYERS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className="button"
-            data-selected={chartLayer === option.value}
-            onClick={() => setChartLayer(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
+        {LAYERS.filter((option) => option.value !== "medoids" || CLUSTERING_ENABLED).map(
+          (option) => (
+            <button
+              key={option.value}
+              type="button"
+              className="button"
+              data-selected={chartLayer === option.value}
+              // The run streams, so the button lights up as soon as the first
+              // typology lands rather than when the whole run finishes.
+              disabled={option.value === "medoids" && !hasClusters}
+              title={
+                option.value === "medoids" && !hasClusters
+                  ? `One line per cluster — waiting for results (${clusterStatus})`
+                  : undefined
+              }
+              onClick={() => setChartLayer(option.value)}
+            >
+              {option.label}
+            </button>
+          ),
+        )}
       </fieldset>
 
-      <fieldset className="controls__group controls__group--wide">
+      {/*
+        * Opacity is the hairlines' control: it is what turns overplotting into a
+        * density field. The other two layers do not overplot — lumps carry their
+        * own fill and there are a thousand medoid spines, not a million — so the
+        * slider is disabled rather than left to do nothing, which is what it did
+        * in lump mode before.
+        */}
+      <fieldset className="controls__group controls__group--wide" disabled={chartLayer !== "lines"}>
         <legend>Line opacity</legend>
         <input
           type="range"
@@ -85,7 +110,9 @@ export function ControlBar(): React.JSX.Element {
           value={opacity}
           onChange={(event) => setOpacity(Number(event.target.value))}
         />
-        <span className="controls__value">{opacity.toFixed(2)}</span>
+        <span className="controls__value">
+          {chartLayer === "lines" ? opacity.toFixed(2) : "—"}
+        </span>
       </fieldset>
     </div>
   )

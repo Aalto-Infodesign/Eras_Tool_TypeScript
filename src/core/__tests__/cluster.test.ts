@@ -5,8 +5,15 @@ import { buildDurationMatrices, buildDurationMatrix } from "../cluster/matrices.
 import { singleCluster, TypologyClusterer } from "../cluster/meanshift.ts"
 import { NeighborIndex } from "../cluster/NeighborIndex.ts"
 import { buildRibbons } from "../cluster/ribbons.ts"
+import { medoidPatients } from "../cluster/medoids.ts"
 import { ClusterRunBuilder } from "../cluster/run.ts"
-import { CLUSTER_DEFAULTS, TOP_CLUSTER_LIMIT, type TypologyClusters } from "../cluster/types.ts"
+import {
+  CLUSTER_DEFAULTS,
+  TOP_CLUSTER_LIMIT,
+  type ClusterRef,
+  type ClusterRun,
+  type TypologyClusters,
+} from "../cluster/types.ts"
 import { collapseDuplicates } from "../cluster/weightedPoints.ts"
 import { buildStore } from "../model/build.ts"
 import { rowLookup } from "../render/geometry.ts"
@@ -422,5 +429,51 @@ describe("ranked top clusters", () => {
     // Everything below the cap was dropped, not the large ones.
     expect(run.topBySize.at(-1)?.size).toBe(51)
     expect(run.clusters).toHaveLength(TOP_CLUSTER_LIMIT + 50)
+  })
+})
+
+describe("medoid layer", () => {
+  /** A run reduced to what the medoid layer actually reads. */
+  const runWith = (
+    all: readonly { globalIndex: number; size: number; medoidPatient: number }[],
+    topCount: number,
+  ): ClusterRun => {
+    const clusters: ClusterRef[] = all.map((c) => ({
+      ...c,
+      typologyKey: `t${c.globalIndex}`,
+      localCluster: 0,
+    }))
+    return {
+      byTypology: new Map(),
+      clusterOfPatient: new Int32Array(0),
+      clusters,
+      topBySize: [...clusters].sort((a, b) => b.size - a.size).slice(0, topCount),
+      params: CLUSTER_DEFAULTS,
+    }
+  }
+
+  const run = runWith(
+    [
+      { globalIndex: 0, size: 100, medoidPatient: 7 },
+      { globalIndex: 1, size: 50, medoidPatient: 8 },
+      { globalIndex: 2, size: 1, medoidPatient: 9 },
+    ],
+    2,
+  )
+
+  it("draws only the ranked top clusters when nothing is selected", () => {
+    // The whole run would be tens of thousands of spines — the hairball this
+    // layer exists to replace.
+    expect([...medoidPatients(run, [], null)]).toEqual([7, 8])
+  })
+
+  it("draws exactly the selected clusters, however small", () => {
+    expect([...medoidPatients(run, [2], null)]).toEqual([9])
+  })
+
+  it("drops a medoid the filters have excluded", () => {
+    const mask = new Uint8Array(10).fill(1)
+    mask[7] = 0
+    expect([...medoidPatients(run, [], mask)]).toEqual([8])
   })
 })

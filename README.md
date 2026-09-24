@@ -166,7 +166,8 @@ their own.
 - **Lines.** Every visible trajectory as a hairline on the GPU, coloured by
   state with a source→target gradient per segment. At a low alpha the
   overplotting *is* the reading: the density field shows where the population
-  sits without anything being aggregated away.
+  sits without anything being aggregated away. See *Zero-length segments* below
+  for the one case this layer has to special-case.
 - **Lumps.** The alternative to the lines, not an overlay on them — one of the
   two is built, never both. Every transition between one ordered pair of states
   collapses into the extent it covers, drawn as a four-cornered quad with its top
@@ -213,6 +214,32 @@ That ribbon is kept intact in `core/render/ribbons.ts` and `ui/RibbonLayer.tsx`
 with its tests, because it is the natural shape for a *clustered* grouping to
 take — `core/cluster/ribbons.ts` is the adapter that feeds it clusters instead of
 typologies. It is parked with the clustering rather than deleted.
+
+### Zero-length segments
+
+The store closes every patient with a self-link onto their last event — its stop
+convention, which the lump layer reads as "where trajectories come to rest". The
+lines layer used to emit that link too, and it was a bug in two directions.
+
+Both ends land on the same point, and **a zero-length line draws nothing**:
+`gl.LINES` rasterises no fragments for it, and Canvas2D's `butt` cap gives it no
+width. So it was invisible and — because GPU picking reads back what was
+actually drawn — unpickable, while still taking a slot in every buffer. On the
+25k dataset that was 24,243 of 154,342 segments: **16% of the vertex buffer and
+16% of the draw, painting nothing.** A line's own endpoint already shows where it
+stopped.
+
+The exception is a patient with a *single* event, for whom the self-link is the
+whole trajectory. Dropping it erased them from the chart entirely — 753 people in
+the 25k dataset, and the second-largest typology is made of nothing else, so
+selecting that one card drew an empty chart. They now get a short horizontal mark
+centred on their one event, which is both visible and pickable.
+
+The mark is sized from the dataset's extent rather than from the current view,
+because geometry is built once and the x domain moves under it. The trade is that
+zooming in magnifies it like any other x measure; holding it to a constant number
+of pixels would mean a per-vertex flag and a branch in the vertex shader, which
+is a lot of machinery for a tick.
 
 ### Animating the view
 
@@ -554,22 +581,45 @@ therefore keeps its cluster — and its colour — however the view is narrowed.
 original derived its matrices from the filtered data, so every filter change
 reclustered and cluster identity shifted underneath the user.
 
-### The two layers it drove (parked)
+### The medoid layer
 
-- **Individuals + medoid spines.** Every trajectory stays a hairline, coloured by
-  cluster instead of by state — the density field itself becomes the cluster map,
-  which costs only a different colour buffer. Each cluster's medoid is drawn on
-  top as an opaque spine, in its own geometry slot so toggling spines never
-  rebuilds the bulk buffers. WebGL only guarantees 1px lines, so a spine is drawn
-  a few times at sub-pixel offsets — affordable precisely because the spine layer
-  is a few hundred segments, not a million.
-- **Ribbons grouped by cluster.** The same shapes the chart draws today, but with
-  a cluster supplying the group instead of a typology. The geometry never knew
-  the difference: `core/cluster/ribbons.ts` turns a cluster into a set of
-  patients and hands it to the shared builder in `core/render/ribbons.ts`.
+With clustering on, the chart offers **Medoids** as a third layer beside Lines
+and Lumps — a third *alternative*, not an overlay, on the same footing as the
+other two.
 
-The renderer keeps its overlay geometry slot and its colour-by-cluster source, so
-neither has to be rebuilt to bring the spine layer back.
+A medoid is a real patient: the member nearest its cluster's centre. So the layer
+needs no new geometry, no new shader and no new picking path — it is
+`buildGeometry` handed a thousand patient indices instead of a million. Hover,
+the GPU colour-pick, the animated reorder and the box plots behind it all work
+unchanged, and hovering a spine names the actual person the cluster is standing
+on.
+
+Which clusters get a spine follows the app's scoping rule — selecting narrows
+what is drawn and never re-runs anything:
+
+- nothing selected → the run's ranked `topBySize`, already maintained
+  incrementally and capped at 1000. The full run is tens of thousands of
+  clusters, and drawing every medoid would rebuild the hairball the layer exists
+  to replace.
+- clusters selected → exactly those, however small, because an explicit choice
+  outranks the ranking.
+
+A medoid whose patient the filters have excluded is dropped, so the summary never
+claims a cohort that is no longer on screen. The layer draws at full opacity and
+2px, and the opacity slider is disabled while it is up: alpha is what turns
+overplotting into a density field, and a thousand lines have nothing to stack.
+(The slider had been doing nothing in lump mode too; now it says so.)
+
+Colouring stays by state rather than by cluster. Cluster colour is a ring of 48
+that thousands of clusters wrap around, so it separates neighbours but does not
+identify anything without a legend — whereas the state gradient means the same
+thing here as everywhere else in the chart. The `ColorSource` case for it is
+still there, unwired.
+
+**Ribbons grouped by cluster** remain parked: the same shapes, with a cluster
+supplying the group instead of a typology. The geometry never knew the
+difference — `core/cluster/ribbons.ts` turns a cluster into a set of patients and
+hands it to the shared builder in `core/render/ribbons.ts`.
 
 ### Streaming without thrash
 

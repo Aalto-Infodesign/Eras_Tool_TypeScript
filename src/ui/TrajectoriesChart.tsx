@@ -44,6 +44,7 @@ export function TrajectoriesChart(): React.JSX.Element {
   const {
     bulk,
     lumps,
+    medoidCount,
     stateStats,
     populationStats,
     rowOf: targetRowOf,
@@ -117,12 +118,19 @@ export function TrajectoriesChart(): React.JSX.Element {
       xDomain,
       rowCount: stateOrder.length,
       marginY: MARGIN_Y,
-      opacity,
-      lineWidth: 1,
+      /*
+       * The medoid layer is a summary, not a density field. There are a thousand
+       * spines where the bulk has a million hairlines, so alpha stacking has
+       * nothing left to stack — a low opacity would only make them hard to see,
+       * and each line stands for a whole cluster rather than for one person.
+       * The control bar disables the slider to say so.
+       */
+      opacity: chartLayer === "medoids" ? 1 : opacity,
+      lineWidth: chartLayer === "medoids" ? 2 : 1,
       overlayOpacity: 0.95,
       overlayWidth: 2.5,
     }),
-    [xDomain, stateOrder.length, opacity],
+    [xDomain, stateOrder.length, opacity, chartLayer],
   )
 
   useEffect(() => {
@@ -270,6 +278,7 @@ export function TrajectoriesChart(): React.JSX.Element {
       <ChartStats
         segmentCount={bulk?.segmentCount ?? 0}
         lumpCount={lumps.length}
+        medoidCount={medoidCount}
         buildMs={buildMs}
         frameRef={frame.ref}
         indexing={needsCpuIndex && index === null}
@@ -281,12 +290,14 @@ export function TrajectoriesChart(): React.JSX.Element {
 function ChartStats({
   segmentCount,
   lumpCount,
+  medoidCount,
   buildMs,
   frameRef,
   indexing,
 }: {
   segmentCount: number
   lumpCount: number
+  medoidCount: number
   buildMs: number
   frameRef: React.RefObject<number>
   indexing: boolean
@@ -303,13 +314,18 @@ function ChartStats({
 
   return (
     <div className="chart__stats">
-      {chartLayer === "lines" ? (
+      {chartLayer === "lumps" ? (
         <span>
-          <b>{segmentCount.toLocaleString()}</b> segments
+          <b>{lumpCount}</b> lumps
         </span>
       ) : (
         <span>
-          <b>{lumpCount}</b> lumps
+          {chartLayer === "medoids" && (
+            <>
+              <b>{medoidCount.toLocaleString()}</b> medoids ·{" "}
+            </>
+          )}
+          <b>{segmentCount.toLocaleString()}</b> segments
         </span>
       )}
       <span>
