@@ -107,9 +107,45 @@ Hover needs to find a segment with no elements to hit-test. Two implementations:
 
 ### Everything heavy in a worker (`src/workers/`)
 
-Parse, store construction, state summaries and typology grouping all run off the
+Parse, store construction and the state summaries all run off the
 main thread. Only transferred `ArrayBuffer`s come back — the handoff is O(1)
 regardless of dataset size, which is what `IdColumn` exists for.
+
+#### A transferred buffer is gone from this side
+
+Transfer is what makes the handoff O(1), and it is also the sharpest edge in the
+codebase: `postMessage(msg, { transfer })` **detaches** those buffers here. A
+detached typed array is not an error, it is length 0 — so the failure is silent
+and arrives later, somewhere else.
+
+It bit exactly once, and instructively. `buildDurationMatrix` set
+`patients = typology.patients` rather than copying, and `ClusterClient.run` posts
+every matrix with `matrixTransferables`, which includes `patients.buffer`. So
+starting a clustering run emptied the membership list of every typology in the
+store — and a run starts immediately after every load.
+
+Nothing noticed for a while, because `size` is a plain number that survives and
+every count in the UI reads *that*: the silhouette cards, the cluster table and
+the path explorer all showed correct totals. Only *using* membership failed.
+`intersectTypologies` built its allow-list from zero indices, so the first
+typology selection after a load selected nobody and drew nothing — while the
+panel that offered it said 27 individuals. Reordering a state rebuilt the
+typologies and fixed it for the rest of the session, which made it look like a
+rendering bug, and it was reported as one.
+
+The rule the code now follows: **a payload that will be transferred owns its
+buffers.** `matrices.ts` slices, and `wire.test.ts` clones with the real transfer
+list and asserts the typologies survive it — the assertion that turns a silent
+detach back into a failing test.
+
+Typologies are deliberately **not** among the things the worker sends, though
+they are derived there cheaply enough. They are pure derivation over the store —
+their whole content is patient indices into it — and a reshape already has to
+redo them (`syncStates`). Shipping them too meant the load path obtained them one
+way and every later path another, so the app ran on a structure only one of those
+paths ever produced. Nothing downstream can tell the two apart until membership
+is *used*, at which point a bad one selects nobody. One producer, exercised on
+every reorder, is worth 12 ms once on a 250k load.
 
 ### One flat store instead of seven providers (`src/app/store.ts`)
 
@@ -168,10 +204,14 @@ their own.
   overplotting *is* the reading: the density field shows where the population
   sits without anything being aggregated away. See *Zero-length segments* below
   for the one case this layer has to special-case.
-- **Lumps.** The alternative to the lines, not an overlay on them — one of the
-  two is built, never both. Every transition between one ordered pair of states
-  collapses into the extent it covers, drawn as a four-cornered quad with its top
-  edge flat on the source row and its bottom edge flat on the target row.
+- **Lumps.** Every transition between one ordered pair of states collapses into
+  the extent it covers, drawn as a four-cornered quad with its top edge flat on
+  the source row and its bottom edge flat on the target row.
+- **Medoid spines** (with clustering on): one line per cluster, each a real
+  patient. See below.
+
+The three data layers are **toggles, not a choice**, and each is built only while
+it is on. See *Stacking the layers*.
 - **State box plots.** One range-and-median glyph per row: a bar spanning the
   selection's earliest→latest arrival at that state with a tick at its median,
   and whiskers running out to where the *unnarrowed* population reaches. See
@@ -214,6 +254,40 @@ That ribbon is kept intact in `core/render/ribbons.ts` and `ui/RibbonLayer.tsx`
 with its tests, because it is the natural shape for a *clustered* grouping to
 take — `core/cluster/ribbons.ts` is the adapter that feeds it clusters instead of
 typologies. It is parked with the clustering rather than deleted.
+
+### Stacking the layers
+
+Lines, lumps and medoid spines started as alternatives, matching the original,
+and that was the wrong model. The interesting question about a summary is how it
+sits against what it summarises — where the spines run through the density
+field, which lumps the hairlines actually fill — and toggling back and forth to
+answer it asks the eye to hold one picture while looking at another.
+
+Stacking needs the bottom layer to get out of the way, and **lowering its opacity
+is not how**. Alpha accumulates: two faint lines crossing are darker than one,
+which is exactly what makes the density readable and exactly what ruins it as a
+backdrop, because the dense regions stay dark enough to compete with whatever is
+drawn on top. `ViewState.bulkFade` instead mixes each line's colour toward the
+chart's own background and draws it **opaque**, so every line lands on the same
+value however many others it crosses and the layer reads as one faded sheet.
+
+```glsl
+vColor = vec4(mix(aColor.rgb, uBackground, uFade), aColor.a * uOpacity);
+```
+
+The caller passes `uOpacity = 1` whenever `uFade > 0`, which keeps the shader
+branch-free. Canvas2D does the same mix once per colour — there are a handful of
+states and up to a million segments, so it belongs at the stroke, not in the
+loop. The background is read off the chart element rather than hard-coded: the
+two have to agree exactly or a faded layer reads as a wash of the wrong tint.
+
+The slider keeps one direction — low is faint either way — and only changes what
+it means, which the legend says (`Line opacity` / `Line backdrop`).
+
+The spines land in the renderer's **overlay buffer** when the hairlines are
+there to sit on top of, so toggling them never touches the megabytes underneath.
+Alone, they are the bulk, which also makes them what hover picks from — picking
+reads the bulk buffer, so it follows whichever layer is the primary one.
 
 ### Zero-length segments
 
@@ -391,6 +465,90 @@ mounted, which buys hit-testing, a `<title>` and CSS transitions on the geometry
 for free. The reorder animation is those transitions on the SVG2 geometry
 properties (`cx`, `cy`, `x1`…), so the whole grid glides from one stacking to the
 next without a single animated value crossing the React boundary.
+
+### The path explorer
+
+A skill tree over the cohort: pick a first state, see every state anyone went to
+next with the count that took it, step, repeat. Stopping anywhere is a selection
+— a prefix scopes the chart to every typology under it — and walking to a leaf
+lands on one exact trajectory shape.
+
+The structure is a **prefix trie over the typology sequences**, in
+`core/stats/pathTree.ts`. That is the whole trick: typologies are *already* the
+deduplicated sequences with their patient counts attached, so reading them left
+to right gives the tree for free. On the 250k dataset, 3,154 typologies become
+3,218 nodes in **0.6 ms**, rebuilt on any change to what is filtered.
+
+This replaces two separate things in the original, and is cheaper than either:
+
+- the **Hasse diagram**, a partial order over silhouettes built with PO.js in its
+  own worker (`getDominancePairsSelf` over every pair of names, then
+  `setLayers`/`setDepth`/cover relations). Note this is deliberately *not* the
+  same structure: the poset related silhouettes by subsequence containment, so
+  `a-c` sat beneath `a-b-c`. Here they are different branches from `a`. That is
+  the right shape for stepping forward through a trajectory and the wrong one for
+  asking what contains what — if the containment question comes back, it wants
+  the poset, not this.
+- the **React Flow "prediction" board**, where you drew a sequence to ask whether
+  anyone had lived it. The explorer answers that as a side effect of its own
+  navigation: a step that is not offered is a step nobody took. You cannot draw
+  an impossible path, so you never have to ask.
+
+It lives in a **dialog**, not in the side column. A step is a *row* of
+alternatives and a walk is a sequence of steps, so the thing has two real axes;
+folded into a 300px column it could only stack, which turned the one comparison
+that matters — this branch against its siblings — into scrolling. In the dialog
+it lays out as one column per step, each holding that step's options, with the
+map across the bottom. The side panel keeps only what is genuinely a summary:
+the breadcrumb, how much of the cohort is left, and the way in.
+
+The dialog is a real `<dialog>` opened with `showModal`, which is what puts it in
+the top layer with a true `::backdrop`, traps focus and makes Escape work. Unlike
+the original's, it is driven by a prop rather than by the parent calling
+`showModal()` on a ref — the element's own `close` event reports back, so the
+browser's dismiss paths and ours cannot drift apart. Its children mount only
+while it is open: the explorer builds a trie and paints a canvas, and neither
+should happen for a dialog nobody has opened.
+
+Three details that make it usable rather than merely correct:
+
+- **Every level stays on screen.** What you excluded by stepping is as visible as
+  what you chose, greyed but still clickable, so changing your mind at step two
+  is one click rather than a reset. Clicking the state you are standing on steps
+  back off it.
+- **Counts read from `population`, not `selection`.** `selection` has already
+  been narrowed by the explorer's own last click, so the tree would describe its
+  own history: every branch but the chosen one would drop to zero and the
+  alternatives the panel exists to show would vanish. Same reasoning as the
+  silhouette cards' filtered line.
+- **A branch a filter has emptied stays in the tree at size 0**, struck through
+  rather than removed. "Nobody *here* did this" and "nobody ever did this" are
+  different answers and the panel should not conflate them.
+
+The board also carries the path as one line — `a → b → c`, in the chart's
+colours, with the surviving count at each step. The columns show the *decisions*,
+which is what you need while choosing and the wrong shape for reading back what
+you chose: that answer is one card per column with the rejected options in
+between. The same component sits in the side panel without the counts, where it
+is the "where am I" and the way back.
+
+The minimap is a canvas — nothing in it is hovered or clicked, so there is no
+reason to pay for a DOM node per edge; it is the same trade the stacked-lines
+diagram makes. Nodes and edges take the state's own colour, so the map reads
+against the chart and the board rather than inventing a second encoding, and
+three ranks carry the rest: off the route, still reachable from where you stand,
+and the route itself — each brighter, thicker and larger than the last, with a
+ring on the node you are standing on. Drawing is batched into one `Path2D` per
+(rank, state), which turns a few thousand strokes into a dozen — the same
+grouping the Canvas2D trajectory backend uses. Layout is a one-dimensional tidy
+tree: depth sets x, leaves take consecutive slots, parents centre over their
+children, one iterative post-order pass.
+
+Selection flows through `selectedTypologies`, which already existed — so the
+chart, the silhouette cards, the cluster table and the medoid layer all respond
+to a path with no new wiring. A path selection can name hundreds of keys, which
+turned two `Array.includes` scans into quadratic work; both are `Set` lookups
+now, and the selected-chips row collapses to a count past 18.
 
 ### Removing a state edits the source
 
@@ -597,12 +755,21 @@ on.
 Which clusters get a spine follows the app's scoping rule — selecting narrows
 what is drawn and never re-runs anything:
 
-- nothing selected → the run's ranked `topBySize`, already maintained
+- **clusters selected** → exactly those, however small, because an explicit
+  choice outranks any ranking.
+- **the cohort is narrowed** (a typology, a filter) → *every* cluster whose
+  medoid survives.
+- **nothing narrows it** → the run's ranked `topBySize`, maintained
   incrementally and capped at 1000. The full run is tens of thousands of
   clusters, and drawing every medoid would rebuild the hairball the layer exists
   to replace.
-- clusters selected → exactly those, however small, because an explicit choice
-  outranks the ranking.
+
+The cap applies to the **survivors**, not to the run. Applying it to the run
+first was a bug, and a quiet one: on the 25k dataset it hid 2,263 of 3,263
+medoids, and 924 of 938 typologies were missing at least one — select a typology
+with 12 clusters and the chart drew 11 spines while the panel beside it listed
+12. The chart must not show a subset of a list the user is reading next to it,
+and a narrowed cohort is small enough that there is nothing to cap.
 
 A medoid whose patient the filters have excluded is dropped, so the summary never
 claims a cohort that is no longer on screen. The layer draws at full opacity and
@@ -638,6 +805,13 @@ things keep that from costing more than the clustering:
 
 One row per typology, expandable to its clusters, **windowed** — only the rows
 near the viewport are mounted, where the original rendered every typology. Rows
+carry two independent actions rather than one: clicking the name scopes the
+chart to that typology, exactly as its silhouette card does, while the chevron
+opens its clusters — so exploring the list never costs you the selection you
+were reading it with, and the medoid layer follows the row you are on. A
+typology of a single state shows `—` rather than `…`: it has no transitions, so
+it has no duration vector and the clusterer is never handed one; the old spinner
+read as a run that never finished. Rows
 are memoised on the result object, which is referentially stable once a typology
 finishes, so a streamed result re-renders one row instead of all of them.
 
@@ -707,7 +881,7 @@ src/
     parse/       delimited reader, dates, column detection, JSON, ingest
     model/       StateVocabulary, IdColumn, CSR builder, reshape, worker transfer
     query/       Selection, allocation-free filters
-    stats/       state summaries + ordering, typology grouping, silhouette ops
+    stats/       state summaries + ordering, typology grouping, silhouettes, path trie
     cluster/     duration matrices, mean-shift, grid, run, exports (parked)
     render/      scales, palette, geometry, lumps, box plots, WebGL2 / Canvas2D
     util/
@@ -727,11 +901,13 @@ shell ever changes again.
 
 ## Not ported yet
 
-DBSCAN, the poset / Hasse work, the flow chart import step (React Flow), the arc
-chart, stacked state density, the scrub-flashlight hover, and the progressive
+DBSCAN, the Hasse / poset diagram itself (the path explorer replaces what it was
+used for — see above), the flow chart import step (React Flow), the arc chart,
+stacked state density, the scrub-flashlight hover, and the progressive
 "martini" reveal choreography (results still stream largest-first; only the timed
 fade-and-settle is gone).
 
-The silhouettes' Hasse diagram is the natural next one: the poset is a subset
-relation over the same state sequences the cards already hold, so it is a
-group-by over `typologies` rather than new data.
+The Hasse diagram proper is the natural next one. The path explorer covers what
+that view was mostly *used* for, but not what it was: a partial order by
+subsequence containment is a different question from stepping forward, and it is
+still a group-by over `typologies` rather than new data.

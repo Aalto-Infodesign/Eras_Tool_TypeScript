@@ -15,6 +15,7 @@ import {
 } from "../core/query/filters.ts"
 import { visibleExtent } from "../core/query/extent.ts"
 import { Selection } from "../core/query/Selection.ts"
+import { startsWithPath } from "../core/stats/pathTree.ts"
 import { buildDistributions, type FilterDistributions } from "../core/stats/distributions.ts"
 import { summariseStates } from "../core/stats/states.ts"
 import { buildTypologies } from "../core/stats/typologies.ts"
@@ -46,13 +47,22 @@ export type ClusterStatus = "idle" | "running" | "paused" | "done" | "error"
 /** What the bulk layer is coloured by. Only `state` is reachable while clustering is parked. */
 export type ColorBy = "state" | "cluster"
 /**
- * Which reading the chart shows. These are alternatives, not a stack: lumps
- * replace the hairlines rather than sitting over them, as in the original, and
- * the medoid spines replace both with one line per cluster.
+ * The three readings of the same data, each independently on or off.
+ *
+ * They began as alternatives, matching the original, and that was the wrong
+ * model: the interesting question about a summary is how it sits against what
+ * it summarises — where the medoid spines run through the density field, which
+ * lumps the hairlines actually fill. Answering it by toggling back and forth
+ * asks the eye to hold one picture while looking at another.
+ *
+ * Stacking them needs the bottom layer to get out of the way, which is what
+ * `ViewState.bulkFade` is for.
  *
  * `medoids` is only reachable while clustering is on — see `app/features.ts`.
  */
 export type ChartLayer = "lines" | "lumps" | "medoids"
+
+export type LayerToggles = Readonly<Record<ChartLayer, boolean>>
 
 interface ErasState {
   status: LoadStatus
@@ -102,6 +112,16 @@ interface ErasState {
   /** Histograms behind the sliders. Rebuilt whenever the dataset is reshaped. */
   distributions: FilterDistributions | null
   selectedTypologies: readonly string[]
+  /**
+   * The path explorer's position: state ids from the first step down.
+   *
+   * `selectedTypologies` is derived from it whenever it is non-empty — every
+   * typology whose sequence starts with it — so the path is a *way of choosing*
+   * typologies rather than a second kind of selection the chart would have to
+   * know about. Kept here rather than in the panel because the panel folds away
+   * and the selection it made does not.
+   */
+  pathPrefix: readonly number[]
 
   axis: XAxis
   /**
@@ -128,7 +148,7 @@ interface ErasState {
   selectedClusters: readonly number[]
 
   colorBy: ColorBy
-  chartLayer: ChartLayer
+  layers: LayerToggles
   showMedoids: boolean
 
   loadFile(file: File): Promise<void>
@@ -138,6 +158,8 @@ interface ErasState {
   toggleInverted(key: NumericFilter): void
   toggleTypology(key: string): void
   clearTypologies(): void
+  /** Walks the path explorer to `prefix`; `[]` steps back to the whole cohort. */
+  selectPath(prefix: readonly number[]): void
   setStateOrder(order: readonly number[]): void
   moveState(state: number, delta: number): void
   toggleRemovedState(state: number): void
@@ -158,7 +180,7 @@ interface ErasState {
   toggleCluster(globalIndex: number): void
   clearClusters(): void
   setColorBy(colorBy: ColorBy): void
-  setChartLayer(layer: ChartLayer): void
+  toggleLayer(layer: ChartLayer): void
   setShowMedoids(show: boolean): void
 
   reset(): void
@@ -201,6 +223,7 @@ const initial = {
   filters: emptyFilters,
   distributions: null,
   selectedTypologies: [],
+  pathPrefix: [],
   axis: "age" as XAxis,
   xDomainOverride: null,
   rendererKind: detectRendererKind(),
@@ -218,7 +241,7 @@ const initial = {
   selectedClusters: [],
 
   colorBy: "state" as ColorBy,
-  chartLayer: "lines" as ChartLayer,
+  layers: { lines: true, lumps: false, medoids: false } as LayerToggles,
   showMedoids: true,
 }
 
@@ -244,11 +267,15 @@ export const useEras = create<ErasState>()((set, get) => {
     applyFilters(store, filters, selection)
 
     if (selectedTypologies.length > 0) {
-      const chosen = typologies.filter((t) => selectedTypologies.includes(t.key))
-      intersectTypologies(
-        selection,
-        chosen.map((t) => t.patients),
-      )
+      // A Set, not `includes`: a path selection can name hundreds of typologies
+      // at once, and the quadratic scan that was fine for a handful of clicked
+      // cards is not fine for "everyone who started with this state".
+      const keys = new Set(selectedTypologies)
+      const chosen: Uint32Array[] = []
+      for (const typology of typologies) {
+        if (keys.has(typology.key)) chosen.push(typology.patients)
+      }
+      intersectTypologies(selection, chosen)
     }
 
     set({ selectionVersion: get().selectionVersion + 1 })
@@ -278,6 +305,15 @@ export const useEras = create<ErasState>()((set, get) => {
 
     const order = nextOrder ?? stateOrder
     const removedStates = nextRemoved ?? filters.removedStates
+    /*
+     * A reorder leaves both the state ids and the typology keys alone, so a
+     * path selection survives it untouched. A removal does neither: the state
+     * the path steps through may be gone, and the typologies it named merge
+     * into others. There is no honest way to carry a path across that.
+     */
+    const reshaped =
+      removedStates.length !== filters.removedStates.length ||
+      removedStates.some((state, i) => filters.removedStates[i] !== state)
     const removedSet = new Set(removedStates)
 
     const clock = new Stopwatch()
@@ -316,7 +352,8 @@ export const useEras = create<ErasState>()((set, get) => {
       typologies,
       distributions,
       // A splice merges typologies, so a selected key can simply cease to exist.
-      selectedTypologies: selectedTypologies.filter((key) => keys.has(key)),
+      selectedTypologies: reshaped ? [] : selectedTypologies.filter((key) => keys.has(key)),
+      pathPrefix: reshaped ? [] : get().pathPrefix,
       stateOrder: order,
       visibleStates: order.filter((state) => !removedSet.has(state)),
       reshapeTimings: removedStates.length > 0 ? clock.timings : [],
@@ -338,6 +375,19 @@ export const useEras = create<ErasState>()((set, get) => {
     const selection = new Selection(store.patientCount)
     const population = new Selection(store.patientCount)
 
+    /*
+     * Typologies are grouped here rather than shipped from the worker.
+     *
+     * They are pure derivation over the store, and a reshape already has to
+     * redo them (`syncStates`). Having the load path get them one way and every
+     * later path get them another meant the app ran on a structure only one of
+     * those paths ever produced — and the two are impossible to keep honest,
+     * because nothing downstream can tell them apart until membership is used.
+     * One producer, one code path, exercised on every reorder.
+     */
+    const clock = new Stopwatch()
+    const typologies = clock.measure("group typologies", () => buildTypologies(store))
+
     set({
       status: "ready",
       error: null,
@@ -351,9 +401,9 @@ export const useEras = create<ErasState>()((set, get) => {
       stateOrder: result.stateOrder,
       visibleStates: result.stateOrder,
       baseStateOrder: result.stateOrder,
-      typologies: result.typologies,
+      typologies,
       mapping: result.mapping,
-      timings: result.timings,
+      timings: [...result.timings, ...clock.timings],
       reshapeTimings: [],
       selection,
       population,
@@ -361,6 +411,7 @@ export const useEras = create<ErasState>()((set, get) => {
       // A new file is the global reset signal, as it was in the original.
       filters: emptyFilters,
       selectedTypologies: [],
+      pathPrefix: [],
       selectedPatients: [],
       hoveredPatient: null,
       xDomainOverride: null,
@@ -372,8 +423,19 @@ export const useEras = create<ErasState>()((set, get) => {
       selectedClusters: [],
       // The medoid layer has nothing to draw until the new run produces one,
       // and an empty chart reads as a bug rather than as "still working".
-      chartLayer: get().chartLayer === "medoids" ? "lines" : get().chartLayer,
+      layers: { ...get().layers, lines: true, medoids: false },
     })
+
+    /*
+     * Derive the masks rather than assume them.
+     *
+     * A fresh `Selection` is all ones, which happens to be right at ingest
+     * because `buildStore` drops empty trajectories — but it is the only place
+     * in the app where the two masks are *asserted* instead of computed, and
+     * "happens to be right" is how they drift. One linear pass at load time puts
+     * this path on the same footing as every other.
+     */
+    recompute()
 
     // Clustering ran once here, over the whole dataset. It is parked behind
     // `CLUSTERING_ENABLED`; `startClustering` is a no-op while that is off, so a
@@ -440,12 +502,30 @@ export const useEras = create<ErasState>()((set, get) => {
         selectedTypologies: current.includes(key)
           ? current.filter((k) => k !== key)
           : [...current, key],
+        // Picking a card by hand makes the selection something no prefix
+        // describes, and a breadcrumb that no longer matches the selection is
+        // worse than no breadcrumb.
+        pathPrefix: [],
       })
       recompute()
     },
 
     clearTypologies() {
-      set({ selectedTypologies: [] })
+      set({ selectedTypologies: [], pathPrefix: [] })
+      recompute()
+    },
+
+    selectPath(prefix) {
+      const { typologies } = get()
+      set({
+        pathPrefix: prefix,
+        selectedTypologies:
+          prefix.length === 0
+            ? []
+            : typologies
+                .filter((typology) => startsWithPath(typology.states, prefix))
+                .map((typology) => typology.key),
+      })
       recompute()
     },
 
@@ -632,12 +712,20 @@ export const useEras = create<ErasState>()((set, get) => {
     setColorBy(colorBy) {
       set({ colorBy })
     },
-    setChartLayer(chartLayer) {
+    toggleLayer(layer) {
+      const layers = get().layers
+      const next = layers[layer] !== true
+
       // Medoids need a run behind them. Nothing else in the app can put the
       // chart into a layer whose data has gone, so the guard lives here rather
       // than as a fallback in the render path.
-      if (chartLayer === "medoids" && (!CLUSTERING_ENABLED || get().clusterRun === null)) return
-      set({ chartLayer })
+      if (next && layer === "medoids" && (!CLUSTERING_ENABLED || get().clusterRun === null)) return
+
+      // Turning the last one off leaves a chart with rules and box plots and no
+      // data in it, which reads as a failure rather than as a choice.
+      if (!next && Object.values({ ...layers, [layer]: false }).every((on) => !on)) return
+
+      set({ layers: { ...layers, [layer]: next } })
     },
     setShowMedoids(showMedoids) {
       set({ showMedoids })

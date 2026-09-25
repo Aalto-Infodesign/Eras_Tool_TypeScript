@@ -10,6 +10,7 @@ import { RangeSlider } from "./RangeSlider.tsx"
 import { SilhouetteGlyph } from "./SilhouetteGlyph.tsx"
 
 type SortKey = "size" | "length" | "name"
+type Tab = "all" | "selected"
 
 const SORTS: Record<SortKey, string> = {
   size: "size",
@@ -21,6 +22,14 @@ const CARD_WIDTH = 85
 const CARD_HEIGHT = 112
 const GLYPH_SIZE = 56
 const CHIP_GLYPH = 22
+/**
+ * Chips shown for the selection before it collapses to a count.
+ *
+ * Clicking a card selects one typology, but the path explorer selects every
+ * typology under a prefix — hundreds of them. Rendering a glyph each would cost
+ * more than the whole rest of the panel and say less than the number does.
+ */
+const MAX_CHIPS = 18
 /** Rows of cards kept mounted above and below the viewport. */
 const OVERSCAN = 2
 
@@ -58,6 +67,7 @@ export function TypologyList(): React.JSX.Element | null {
   const clear = useEras((s) => s.clearTypologies)
   const setStateOrder = useEras((s) => s.setStateOrder)
 
+  const [tab, setTab] = useState<Tab>("all")
   const [sortKey, setSortKey] = useState<SortKey>("size")
   /** Share band in percent. `null` is "no band", which is not the same as [0, max]. */
   const [percentRange, setPercentRange] = useState<readonly [number, number] | null>(null)
@@ -164,6 +174,18 @@ export function TypologyList(): React.JSX.Element | null {
    */
   const bandedPatients = banded.reduce((total, e) => total + (e.live ?? e.typology.size), 0)
 
+  // A Set, not `includes`: with a path selection this runs against hundreds of
+  // keys on every render of a list that is already thousands long.
+  const selectedKeys = new Set(selected)
+  const selectedEntries = entries.filter(({ typology }) => selectedKeys.has(typology.key))
+
+  /*
+   * Which list the grid is showing. The selected tab reuses `entries`, so it
+   * inherits the sort — reading a selection back in a different order from the
+   * one you picked it in is its own small confusion.
+   */
+  const shown = tab === "all" ? banded : selectedEntries
+
   if (store === null || typologies.length === 0) return null
 
   const exportIds = (groups: readonly Typology[], filename: string): void => {
@@ -173,12 +195,15 @@ export function TypologyList(): React.JSX.Element | null {
   }
 
   const columns = Math.max(1, Math.floor(viewport.width / CARD_WIDTH))
-  const gridRows = Math.ceil(banded.length / columns)
+  const gridRows = Math.ceil(shown.length / columns)
   const firstRow = Math.max(0, Math.floor(scrollTop / CARD_HEIGHT) - OVERSCAN)
   const mountedRows = Math.ceil(viewport.height / CARD_HEIGHT) + OVERSCAN * 2
-  const mounted = banded.slice(firstRow * columns, (firstRow + mountedRows) * columns)
+  const mounted = shown.slice(firstRow * columns, (firstRow + mountedRows) * columns)
 
-  const selectedTypologies = typologies.filter((t) => selected.includes(t.key))
+  const selectedPatients = selectedEntries.reduce(
+    (total, e) => total + (e.live ?? e.typology.size),
+    0,
+  )
 
   return (
     <Panel
@@ -191,6 +216,39 @@ export function TypologyList(): React.JSX.Element | null {
         </>
       }
     >
+      {/*
+       * Two views of one list. Selecting from a list of thousands and then
+       * wanting to *look* at what you selected are different tasks, and hunting
+       * the chosen cards back out of the full grid is the worse of the two —
+       * which is why the selection used to collapse to a row of chips. A tab
+       * shows them at full size instead, with every card's actions intact.
+       */}
+      <div className="silhouettes__tabs" role="tablist">
+        {([
+          ["all", "All", typologies.length],
+          ["selected", "Selected", selected.length],
+        ] as const).map(([value, label, count]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            className="silhouettes__tab"
+            aria-selected={tab === value}
+            data-selected={tab === value}
+            onClick={() => {
+              setTab(value)
+              // The two lists have nothing to do with each other's length, so
+              // carrying the offset across lands somewhere arbitrary.
+              setScrollTop(0)
+              scroller?.scrollTo({ top: 0 })
+            }}
+          >
+            {label}
+            <em>{count.toLocaleString()}</em>
+          </button>
+        ))}
+      </div>
+
       <div className="silhouettes__controls">
         {(Object.keys(SORTS) as SortKey[]).map((key) => (
           <button
@@ -207,9 +265,10 @@ export function TypologyList(): React.JSX.Element | null {
 
       {/*
        * The share band. Its job is bulk export: drag the top handle down to the
-       * first percent and you have every rare silhouette in one file.
+       * first percent and you have every rare silhouette in one file. It filters
+       * the full list, so it has no meaning over an explicit selection.
        */}
-      <div className="silhouettes__band">
+      <div className="silhouettes__band" hidden={tab !== "all"}>
         <p className="silhouettes__legend">
           <span>Share of cohort</span>
           <em>
@@ -275,7 +334,7 @@ export function TypologyList(): React.JSX.Element | null {
                 rowCount={visibleStates.length}
                 palette={palette.css}
                 maxSteps={store.extents.maxTrajectoryLength}
-                isSelected={selected.includes(typology.key)}
+                isSelected={selectedKeys.has(typology.key)}
                 onToggle={() => toggle(typology.key)}
                 onOrder={() => setStateOrder(orderFromTypology(typology.states, stateOrder))}
                 onExport={() =>
@@ -287,15 +346,22 @@ export function TypologyList(): React.JSX.Element | null {
         </div>
       </div>
 
+      {tab === "selected" && selected.length === 0 && (
+        <p className="silhouettes__empty">
+          Nothing selected. Pick cards from <b>All</b>, or walk a path in the explorer.
+        </p>
+      )}
+
       {/*
-       * The selection, as shapes rather than as a count. A chip is the same
-       * glyph at chip size, so what is cutting the chart stays recognisable
-       * after the list has been scrolled somewhere else.
+       * On the full list the selection collapses to chips — the same glyph at
+       * chip size, so what is cutting the chart stays recognisable after the
+       * grid has been scrolled somewhere else. On the selected tab the cards
+       * *are* that answer, at full size, so chips would only repeat them.
        */}
-      {selectedTypologies.length > 0 && (
+      {tab === "all" && selectedEntries.length > 0 && (
         <div className="silhouettes__selection">
           <ul className="silhouettes__chips">
-            {selectedTypologies.map((typology) => (
+            {selectedEntries.slice(0, MAX_CHIPS).map(({ typology }) => (
               <li key={typology.key}>
                 <button
                   type="button"
@@ -315,11 +381,47 @@ export function TypologyList(): React.JSX.Element | null {
               </li>
             ))}
           </ul>
+          <div className="silhouettes__selection-foot">
+            {selectedEntries.length > MAX_CHIPS && (
+              <span className="silhouettes__more">
+                +{(selectedEntries.length - MAX_CHIPS).toLocaleString()} more
+              </span>
+            )}
+            <button
+              type="button"
+              className="button button--tiny"
+              onClick={() => setTab("selected")}
+            >
+              See all
+            </button>
+            <button type="button" className="button button--tiny" onClick={clear}>
+              Clear {selected.length.toLocaleString()}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === "selected" && selectedEntries.length > 0 && (
+        <div className="silhouettes__selection-foot">
+          <button
+            type="button"
+            className="button"
+            title={`Export the ids of every patient in the ${selectedEntries.length} selected silhouettes`}
+            onClick={() =>
+              exportIds(
+                selectedEntries.map((e) => e.typology),
+                "silhouettes_selected.txt",
+              )
+            }
+          >
+            ⤓ {selectedPatients.toLocaleString()} ids
+          </button>
           <button type="button" className="button button--tiny" onClick={clear}>
-            Clear {selected.length}
+            Clear
           </button>
         </div>
       )}
+
     </Panel>
   )
 }

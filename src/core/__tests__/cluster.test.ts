@@ -461,10 +461,23 @@ describe("medoid layer", () => {
     2,
   )
 
-  it("draws only the ranked top clusters when nothing is selected", () => {
+  it("falls back to the ranked top clusters when too many survive", () => {
     // The whole run would be tens of thousands of spines — the hairball this
     // layer exists to replace.
-    expect([...medoidPatients(run, [], null)]).toEqual([7, 8])
+    expect([...medoidPatients(run, [], null, 2)]).toEqual([7, 8])
+  })
+
+  it("draws every cluster once the cohort is narrow enough to read", () => {
+    // The cap belongs to the survivors, not to the run. Applying it to the run
+    // first meant a typology with 12 clusters drew 11 spines while its panel
+    // listed all 12.
+    expect([...medoidPatients(run, [], null)]).toEqual([7, 8, 9])
+  })
+
+  it("draws every cluster a mask leaves, past the ranked top list", () => {
+    const mask = new Uint8Array(10)
+    mask[9] = 1 // the smallest cluster, which topBySize does not hold
+    expect([...medoidPatients(run, [], mask, 2)]).toEqual([9])
   })
 
   it("draws exactly the selected clusters, however small", () => {
@@ -474,6 +487,6 @@ describe("medoid layer", () => {
   it("drops a medoid the filters have excluded", () => {
     const mask = new Uint8Array(10).fill(1)
     mask[7] = 0
-    expect([...medoidPatients(run, [], mask)]).toEqual([8])
+    expect([...medoidPatients(run, [], mask)]).toEqual([8, 9])
   })
 })

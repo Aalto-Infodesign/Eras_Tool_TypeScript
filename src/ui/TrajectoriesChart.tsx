@@ -37,12 +37,13 @@ export function TrajectoriesChart(): React.JSX.Element {
   const axis = useEras((s) => s.axis)
   const rendererKind = useEras((s) => s.rendererKind)
   const opacity = useEras((s) => s.opacity)
-  const chartLayer = useEras((s) => s.chartLayer)
+  const layers = useEras((s) => s.layers)
   const setHoveredPatient = useEras((s) => s.setHoveredPatient)
   const togglePatient = useEras((s) => s.togglePatient)
 
   const {
     bulk,
+    overlay,
     lumps,
     medoidCount,
     stateStats,
@@ -110,8 +111,14 @@ export function TrajectoriesChart(): React.JSX.Element {
   }, [renderer, bulk])
 
   useEffect(() => {
+    renderer?.setOverlayGeometry(overlay)
+  }, [renderer, overlay])
+
+  useEffect(() => {
     renderer?.setRowLookup(rowOf)
   }, [renderer, rowOf])
+
+  const background = useBackgroundColor(containerRef)
 
   const view = useMemo<ViewState>(
     () => ({
@@ -119,18 +126,26 @@ export function TrajectoriesChart(): React.JSX.Element {
       rowCount: stateOrder.length,
       marginY: MARGIN_Y,
       /*
-       * The medoid layer is a summary, not a density field. There are a thousand
-       * spines where the bulk has a million hairlines, so alpha stacking has
-       * nothing left to stack — a low opacity would only make them hard to see,
-       * and each line stands for a whole cluster rather than for one person.
-       * The control bar disables the slider to say so.
+       * With the hairlines off, whatever is in the bulk slot is a summary — a
+       * thousand spines where the bulk has a million lines, so alpha stacking
+       * has nothing left to stack and a low opacity would only make them hard
+       * to see. The control bar disables the slider to say so.
        */
-      opacity: chartLayer === "medoids" ? 1 : opacity,
-      lineWidth: chartLayer === "medoids" ? 2 : 1,
+      opacity: layers.lines ? opacity : 1,
+      lineWidth: layers.lines ? 1 : 2,
+      /*
+       * The hairlines step back whenever something is drawn over them. The
+       * slider still runs in the same direction — low is faint either way — but
+       * it now picks how far the colour is mixed into the background rather
+       * than how much alpha each line carries, so crossings stop accumulating
+       * and the layer reads as one sheet under the overlay.
+       */
+      bulkFade: layers.lines && (layers.medoids || layers.lumps) ? 1 - opacity : 0,
+      background,
       overlayOpacity: 0.95,
       overlayWidth: 2.5,
     }),
-    [xDomain, stateOrder.length, opacity, chartLayer],
+    [xDomain, stateOrder.length, opacity, layers, background],
   )
 
   useEffect(() => {
@@ -252,7 +267,7 @@ export function TrajectoriesChart(): React.JSX.Element {
           palette={statePalette}
         />
 
-        {chartLayer === "lumps" && (
+        {layers.lumps && (
           <LumpLayer
             lumps={lumps}
             width={size.width}
@@ -276,6 +291,7 @@ export function TrajectoriesChart(): React.JSX.Element {
       </div>
 
       <ChartStats
+        rowCount={stateOrder.length}
         segmentCount={bulk?.segmentCount ?? 0}
         lumpCount={lumps.length}
         medoidCount={medoidCount}
@@ -288,6 +304,7 @@ export function TrajectoriesChart(): React.JSX.Element {
 }
 
 function ChartStats({
+  rowCount,
   segmentCount,
   lumpCount,
   medoidCount,
@@ -295,6 +312,7 @@ function ChartStats({
   frameRef,
   indexing,
 }: {
+  rowCount: number
   segmentCount: number
   lumpCount: number
   medoidCount: number
@@ -303,7 +321,10 @@ function ChartStats({
   indexing: boolean
 }): React.JSX.Element {
   const rendererKind = useEras((s) => s.rendererKind)
-  const chartLayer = useEras((s) => s.chartLayer)
+  const layers = useEras((s) => s.layers)
+  const selection = useEras((s) => s.selection)
+  const cohortSize = useEras((s) => s.cohortSize)
+  const selectionVersion = useEras((s) => s.selectionVersion)
 
   // Sampled on a timer, not per frame, so the readout never drives the render loop.
   const [frameMs, setFrameMs] = useState(0)
@@ -314,28 +335,68 @@ function ChartStats({
 
   return (
     <div className="chart__stats">
-      {chartLayer === "lumps" ? (
-        <span>
-          <b>{lumpCount}</b> lumps
-        </span>
-      ) : (
-        <span>
-          {chartLayer === "medoids" && (
-            <>
-              <b>{medoidCount.toLocaleString()}</b> medoids ·{" "}
-            </>
-          )}
-          <b>{segmentCount.toLocaleString()}</b> segments
-        </span>
-      )}
+      <span>
+        {layers.medoids && (
+          <>
+            <b>{medoidCount.toLocaleString()}</b> medoids ·{" "}
+          </>
+        )}
+        {layers.lumps && (
+          <>
+            <b>{lumpCount}</b> lumps ·{" "}
+          </>
+        )}
+        <b>{segmentCount.toLocaleString()}</b> segments
+      </span>
       <span>
         geometry <b>{buildMs.toFixed(1)}ms</b>
       </span>
       <span>
         draw <b>{frameMs.toFixed(2)}ms</b>
       </span>
+      {/*
+        * What the layer was *asked* to draw, beside what it drew. When the two
+        * disagree — patients selected but no segments — the fault is between
+        * the store and the buffers, and this says so without a debugger.
+        */}
+      <span key={selectionVersion}>
+        <b>{(selection?.count ?? 0).toLocaleString()}</b> / {cohortSize.toLocaleString()} patients
+      </span>
+      <span>
+        <b>{rowCount}</b> rows
+      </span>
       <span className="chart__stats-kind">{rendererKind}</span>
       {indexing && <span className="chart__stats-pending">indexing…</span>}
     </div>
   )
+}
+
+/**
+ * The chart surface's own background colour, as 0–1 RGB.
+ *
+ * Read from the element rather than hard-coded, so the fade mixes toward
+ * whatever the stylesheet actually paints — the two have to agree exactly or a
+ * faded layer reads as a wash of the wrong tint. Sampled once on mount: a theme
+ * switch at runtime would need this to re-read, and there is no theme switch.
+ */
+function useBackgroundColor(
+  ref: React.RefObject<HTMLElement | null>,
+): readonly [number, number, number] {
+  const [color, setColor] = useState<readonly [number, number, number]>([0, 0, 0])
+
+  useEffect(() => {
+    const element = ref.current
+    if (element === null) return
+
+    const parsed = getComputedStyle(element)
+      .backgroundColor.match(/[\d.]+/g)
+      ?.slice(0, 3)
+      .map(Number)
+
+    if (parsed?.length === 3) {
+      setColor([(parsed[0] as number) / 255, (parsed[1] as number) / 255, (parsed[2] as number) / 255])
+    }
+  }, [ref])
+
+  return color
 }

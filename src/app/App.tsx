@@ -4,6 +4,7 @@ import { ControlBar } from "../ui/ControlBar.tsx"
 import { FileLoader } from "../ui/FileLoader.tsx"
 import { FiltersPanel } from "../ui/FiltersPanel.tsx"
 import { ClusterTable } from "../ui/ClusterTable.tsx"
+import { PathExplorer } from "../ui/PathExplorer.tsx"
 import { PerfHud } from "../ui/PerfHud.tsx"
 import { StatesPanel } from "../ui/StatesPanel.tsx"
 import { TrajectoriesChart } from "../ui/TrajectoriesChart.tsx"
@@ -17,7 +18,7 @@ export function App(): React.JSX.Element {
     <div className="app">
       <header className="app__header">
         <h1>
-          ERAS <span>· TypeScript</span>
+          ERAS Tool <span>· TS</span>
         </h1>
         <FileLoader />
       </header>
@@ -30,6 +31,7 @@ export function App(): React.JSX.Element {
             <FiltersPanel />
             {CLUSTERING_ENABLED && <ClusterTable />}
             <TypologyList />
+            <PathExplorer />
           </aside>
 
           <section className="app__chart">

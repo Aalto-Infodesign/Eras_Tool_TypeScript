@@ -27,6 +27,8 @@ uniform vec2  uResolution; // device pixels
 uniform float uRowCount;
 uniform float uMarginY;    // device pixels
 uniform float uOpacity;
+uniform float uFade;       // 0 = density field, >0 = flatten toward uBackground
+uniform vec3  uBackground;
 uniform vec2  uOffset;     // device pixels, for faking spine thickness
 // stateId -> row, one texel per state. A reorder rewrites this and nothing else.
 uniform sampler2D uRows;
@@ -55,7 +57,9 @@ void main() {
     1.0
   );
 
-  vColor = vec4(aColor.rgb, aColor.a * uOpacity);
+  // The caller passes uOpacity = 1 whenever uFade > 0, so a faded layer is
+  // opaque and overlapping lines land on the same value instead of stacking.
+  vColor = vec4(mix(aColor.rgb, uBackground, uFade), aColor.a * uOpacity);
 }`
 
 const FRAGMENT_SHADER = `#version 300 es
@@ -124,6 +128,8 @@ interface Uniforms {
   marginY: WebGLUniformLocation | null
   rows: WebGLUniformLocation | null
   opacity: WebGLUniformLocation | null
+  fade: WebGLUniformLocation | null
+  background: WebGLUniformLocation | null
   offset: WebGLUniformLocation | null
 }
 
@@ -159,7 +165,7 @@ export class WebGLRenderer implements TrajectoryRenderer {
   private readonly positionBuffer: WebGLBuffer
   private readonly colorBuffer: WebGLBuffer
   private readonly uniforms: Uniforms
-  private readonly pickUniforms: Omit<Uniforms, "opacity" | "offset">
+  private readonly pickUniforms: Omit<Uniforms, "opacity" | "offset" | "fade" | "background">
   private rowTexture: WebGLTexture | null = null
   private rowCount = 0
 
@@ -196,6 +202,8 @@ export class WebGLRenderer implements TrajectoryRenderer {
       marginY: gl.getUniformLocation(this.program, "uMarginY"),
       rows: gl.getUniformLocation(this.program, "uRows"),
       opacity: gl.getUniformLocation(this.program, "uOpacity"),
+      fade: gl.getUniformLocation(this.program, "uFade"),
+      background: gl.getUniformLocation(this.program, "uBackground"),
       offset: gl.getUniformLocation(this.program, "uOffset"),
     }
 
@@ -358,10 +366,14 @@ export class WebGLRenderer implements TrajectoryRenderer {
     gl.uniform1f(uniforms.marginY, view.marginY * this.dpr)
     this.bindRows(uniforms.rows)
 
-    // Bulk layer: one draw, hairlines, low alpha.
-    if (this.vertexCount > 0 && view.opacity > 0) {
+    // Bulk layer: one draw, hairlines, low alpha — or, under an overlay, one
+    // opaque draw in a colour already mixed toward the background.
+    const fading = view.bulkFade > 0
+    if (this.vertexCount > 0 && (fading || view.opacity > 0)) {
       gl.bindVertexArray(this.vao)
-      gl.uniform1f(uniforms.opacity, view.opacity)
+      gl.uniform1f(uniforms.opacity, fading ? 1 : view.opacity)
+      gl.uniform1f(uniforms.fade, view.bulkFade)
+      gl.uniform3f(uniforms.background, view.background[0], view.background[1], view.background[2])
       gl.uniform2f(uniforms.offset, 0, 0)
       gl.drawArrays(gl.LINES, 0, this.vertexCount)
     }
@@ -370,6 +382,8 @@ export class WebGLRenderer implements TrajectoryRenderer {
     if (this.overlayVertexCount > 0 && view.overlayOpacity > 0) {
       gl.bindVertexArray(this.overlayVao)
       gl.uniform1f(uniforms.opacity, view.overlayOpacity)
+      // The overlay is the thing being looked at; it never fades.
+      gl.uniform1f(uniforms.fade, 0)
 
       const passes = Math.max(
         1,

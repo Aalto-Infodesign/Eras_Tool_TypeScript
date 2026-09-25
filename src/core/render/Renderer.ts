@@ -10,6 +10,21 @@ export interface ViewState {
   readonly marginY: number
   /** Per-line alpha. Low values turn overplotting into a density field. */
   readonly opacity: number
+  /**
+   * How far the bulk layer is flattened toward `background`. `0` leaves it as
+   * the density field; above that it becomes a flat backdrop.
+   *
+   * This is *not* the same as lowering `opacity`, and the difference is the
+   * whole point. Alpha accumulates: two faint lines crossing are darker than
+   * one, which is exactly what makes the density readable — and exactly what
+   * ruins it as a backdrop, because the dense regions stay dark enough to
+   * compete with whatever is drawn on top. Mixing the colour toward the
+   * background and drawing it opaque gives every line the same value however
+   * many others it crosses, so the layer reads as one faded sheet.
+   */
+  readonly bulkFade: number
+  /** The chart's own background, as 0–1 RGB. What `bulkFade` mixes toward. */
+  readonly background: readonly [number, number, number]
   readonly lineWidth: number
   /** Medoid spine layer: drawn over the bulk, opaque and thick. */
   readonly overlayOpacity: number

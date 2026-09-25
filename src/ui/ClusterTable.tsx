@@ -31,6 +31,9 @@ export function ClusterTable(): React.JSX.Element | null {
   const clusterRun = useEras((s) => s.clusterRun)
   const clusterVersion = useEras((s) => s.clusterVersion)
   const status = useEras((s) => s.clusterStatus)
+  const selectedTypologies = useEras((s) => s.selectedTypologies)
+  const toggleTypology = useEras((s) => s.toggleTypology)
+  const clearTypologies = useEras((s) => s.clearTypologies)
   const progress = useEras((s) => s.clusterProgress)
   const error = useEras((s) => s.clusterError)
 
@@ -73,7 +76,14 @@ export function ClusterTable(): React.JSX.Element | null {
       title="Clusters"
       defaultOpen
       className="panel--table"
-      count={`${status} · ${progress.done}/${progress.total}`}
+      count={
+        <>
+          {selectedTypologies.length > 0 && (
+            <em className="panel__badge">{selectedTypologies.length}</em>
+          )}
+          {status} · {progress.done}/{progress.total}
+        </>
+      }
     >
 
       <div className="clusterbar">
@@ -93,6 +103,15 @@ export function ClusterTable(): React.JSX.Element | null {
             {key}
           </button>
         ))}
+        <button
+          type="button"
+          className="button"
+          disabled={selectedTypologies.length === 0}
+          title="Stop scoping the chart to the selected typologies"
+          onClick={clearTypologies}
+        >
+          Clear {selectedTypologies.length > 0 ? selectedTypologies.length : ""}
+        </button>
         <button
           type="button"
           className="button"
@@ -137,8 +156,11 @@ export function ClusterTable(): React.JSX.Element | null {
                 typologyKey={typology.key}
                 size={typology.size}
                 share={typology.share}
+                steps={typology.states.length}
                 result={result}
+                isSelected={selectedTypologies.includes(typology.key)}
                 isExpanded={expanded === typology.key}
+                onSelect={() => toggleTypology(typology.key)}
                 onToggle={() => setExpanded((c) => (c === typology.key ? null : typology.key))}
               />
             ))}
@@ -155,38 +177,74 @@ const TypologyRow = memo(function TypologyRow({
   typologyKey,
   size,
   share,
+  steps,
   result,
+  isSelected,
   isExpanded,
+  onSelect,
   onToggle,
 }: {
   typologyKey: string
   size: number
   share: number
+  /** States in the sequence. Below two there are no durations to cluster on. */
+  steps: number
   result: TypologyClusters | null
+  isSelected: boolean
   isExpanded: boolean
+  onSelect: () => void
   onToggle: () => void
 }): React.JSX.Element {
+  /*
+   * A one-state typology has no transitions, so it has no duration vector and
+   * the clusterer is never handed one. It is not pending and never will be —
+   * showing it the same "…" as a typology still in the queue reads as a run
+   * that never finishes.
+   */
+  const clusterable = steps >= 2
+  const cell = (value: string): string => (result !== null ? value : clusterable ? "…" : "—")
+
   return (
-    <button
-      type="button"
+    <div
       className="table__row"
       style={{ height: ROW_HEIGHT }}
-      data-selected={isExpanded}
-      data-pending={result === null}
-      onClick={onToggle}
+      data-selected={isSelected}
+      data-expanded={isExpanded}
+      data-pending={result === null && clusterable}
     >
-      <span className="table__key" title={typologyKey}>
+      {/*
+       * Two actions, two buttons. The row is the same unit the silhouette cards
+       * are — clicking the name scopes the chart to that typology — while the
+       * chevron opens its clusters, so exploring the list never costs you the
+       * selection you were reading it with.
+       */}
+      <button
+        type="button"
+        className="table__select table__key"
+        title={`${typologyKey} — click to scope the chart to it`}
+        aria-pressed={isSelected}
+        onClick={onSelect}
+      >
         {typologyKey}
-      </span>
+      </button>
       <span>
         {size.toLocaleString()}
         <em>{(share * 100).toFixed(1)}%</em>
       </span>
-      <span>{result?.k ?? "…"}</span>
-      <span>{result === null ? "…" : result.meanSilhouette.toFixed(3)}</span>
-      <span>{result === null ? "…" : result.bandwidth.toFixed(2)}</span>
-      <span>{isExpanded ? "▾" : "▸"}</span>
-    </button>
+      <span>{result === null ? cell("") : result.k}</span>
+      <span>{cell(result === null ? "" : result.meanSilhouette.toFixed(3))}</span>
+      <span>{cell(result === null ? "" : result.bandwidth.toFixed(2))}</span>
+      <button
+        type="button"
+        className="table__expand"
+        aria-expanded={isExpanded}
+        title={clusterable ? "Show this typology's clusters" : "Nothing to cluster"}
+        disabled={!clusterable}
+        onClick={onToggle}
+      >
+        {isExpanded ? "▾" : "▸"}
+      </button>
+    </div>
   )
 })
 

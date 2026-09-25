@@ -11,8 +11,13 @@ import { buildLumps, type Lump } from "../core/render/lumps.ts"
 const NO_PATIENTS = new Uint32Array()
 
 export interface ChartLayers {
-  /** Every visible patient as a hairline. */
+  /**
+   * The layer the renderer draws first and picks from: the hairlines when they
+   * are on, the medoid spines when they are the only line-shaped layer.
+   */
   readonly bulk: Geometry | null
+  /** Medoid spines when they sit *over* the hairlines; the renderer's own slot. */
+  readonly overlay: Geometry | null
   /** One quad per ordered state pair; the alternative to `bulk`, never both. */
   readonly lumps: readonly Lump[]
   /** How many cluster spines `bulk` holds in medoid mode; `0` otherwise. */
@@ -33,15 +38,17 @@ export interface ChartLayers {
  * Both layers are rebuilt only when *what is shown* changes — never on a resize,
  * a pan or a hover, which the shader and the overlay handle on their own.
  *
- * The three layers are alternatives. `bulk` is either every visible trajectory
- * as a hairline or, in medoid mode, one spine per cluster — both are the same
- * buffers from the same builder, so the renderer, the picking and the animation
- * need no branch. `lumps` collapses the same links into one quad per ordered
- * state pair. Only one of them is ever built, so switching modes does not pay
- * for the layer it is leaving behind.
+ * The three layers stack, and each is built only when it is on — switching one
+ * off stops paying for it immediately.
+ *
+ * The hairlines and the medoid spines are the same buffers from the same
+ * builder handed different patient lists, so the renderer, the picking and the
+ * animation need no branch between them. What differs is only *which slot* they
+ * land in: the renderer keeps a separate overlay buffer so the spines can be
+ * toggled without touching the megabytes underneath them.
  *
  * Only the medoid layer needs a run behind it, and it is unreachable without one
- * (`setChartLayer` refuses); the other two never wait on clustering.
+ * (`toggleLayer` refuses); the other two never wait on clustering.
  */
 export function useChartLayers(): ChartLayers {
   const store = useEras((s) => s.store)
@@ -52,7 +59,7 @@ export function useChartLayers(): ChartLayers {
   const axis = useEras((s) => s.axis)
   const xDomainOverride = useEras((s) => s.xDomainOverride)
   const filters = useEras((s) => s.filters)
-  const chartLayer = useEras((s) => s.chartLayer)
+  const layers = useEras((s) => s.layers)
   const clusterRun = useEras((s) => s.clusterRun)
   const clusterVersion = useEras((s) => s.clusterVersion)
   const selectedClusters = useEras((s) => s.selectedClusters)
@@ -93,24 +100,33 @@ export function useChartLayers(): ChartLayers {
    * hundredth typology lands, but the ranked top list does.
    */
   const medoids = useMemo<Uint32Array>(() => {
-    if (chartLayer !== "medoids" || clusterRun === null) return NO_PATIENTS
+    if (!layers.medoids || clusterRun === null) return NO_PATIENTS
     return medoidPatients(clusterRun, selectedClusters, selection?.mask ?? null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartLayer, clusterRun, clusterVersion, selectedClusters, selection, selectionVersion])
+  }, [layers.medoids, clusterRun, clusterVersion, selectedClusters, selection, selectionVersion])
 
-  const { bulk, buildMs } = useMemo(() => {
-    if (store === null || stateOrder.length === 0) return { bulk: null, buildMs: 0 }
-
-    // One builder, two readings: the difference between the density field and
-    // the summary is only *which patients* are handed to it.
-    const patients =
-      chartLayer === "lines" ? visiblePatients : chartLayer === "medoids" ? medoids : null
-    if (patients === null) return { bulk: null, buildMs: 0 }
-
+  // One builder, two readings: the difference between the density field and the
+  // summary is only *which patients* are handed to it.
+  const lineGeometry = useMemo(() => {
+    if (store === null || stateOrder.length === 0 || !layers.lines) return null
     const t0 = performance.now()
-    const geometry = buildGeometry(store, patients, geometryOptions)
-    return { bulk: geometry, buildMs: performance.now() - t0 }
-  }, [store, stateOrder.length, chartLayer, visiblePatients, medoids, geometryOptions])
+    return { geometry: buildGeometry(store, visiblePatients, geometryOptions), ms: performance.now() - t0 }
+  }, [store, stateOrder.length, layers.lines, visiblePatients, geometryOptions])
+
+  const medoidGeometry = useMemo(() => {
+    if (store === null || stateOrder.length === 0 || medoids.length === 0) return null
+    const t0 = performance.now()
+    return { geometry: buildGeometry(store, medoids, geometryOptions), ms: performance.now() - t0 }
+  }, [store, stateOrder.length, medoids, geometryOptions])
+
+  /*
+   * Which slot each one lands in. The spines go on top when the hairlines are
+   * there to go on top *of*; alone, they are the bulk — which also makes them
+   * the layer hover picks from, since picking reads the bulk buffer.
+   */
+  const bulk = (lineGeometry ?? medoidGeometry)?.geometry ?? null
+  const overlay = lineGeometry === null ? null : (medoidGeometry?.geometry ?? null)
+  const buildMs = (lineGeometry?.ms ?? 0) + (medoidGeometry?.ms ?? 0)
 
   /**
    * One quad per ordered state pair, over the visible links.
@@ -119,9 +135,9 @@ export function useChartLayers(): ChartLayers {
    * are never derived at the same time.
    */
   const lumps = useMemo<readonly Lump[]>(() => {
-    if (store === null || chartLayer !== "lumps") return []
+    if (store === null || !layers.lumps) return []
     return buildLumps(store, visiblePatients, { axis, durationRange: filters.duration })
-  }, [store, chartLayer, visiblePatients, axis, filters.duration])
+  }, [store, layers.lumps, visiblePatients, axis, filters.duration])
 
   /**
    * Box plot stats. Both sides are one scan plus a sort per state, and they are
@@ -142,6 +158,7 @@ export function useChartLayers(): ChartLayers {
 
   return {
     bulk,
+    overlay,
     lumps,
     medoidCount: medoids.length,
     stateStats,

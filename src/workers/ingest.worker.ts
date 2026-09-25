@@ -3,7 +3,6 @@
 import { payloadTransferables, toPayload } from "../core/model/transfer.ts"
 import { ingest } from "../core/parse/ingest.ts"
 import { orderStates, summariseStates } from "../core/stats/states.ts"
-import { buildTypologies } from "../core/stats/typologies.ts"
 import { Stopwatch } from "../core/util/time.ts"
 import { toStatePayload, type WorkerRequest, type WorkerResponse } from "./protocol.ts"
 
@@ -14,6 +13,13 @@ import { toStatePayload, type WorkerRequest, type WorkerResponse } from "./proto
  * large import froze the page for the whole pipeline — the parse, the enrich,
  * the trajectory build and the silhouette grouping. The only thing that crosses
  * back is a set of transferred ArrayBuffers.
+ *
+ * Typologies are deliberately *not* among them. They are a derived structure
+ * whose whole content is patient indices into the store, and the store already
+ * has to be rebuilt on the other side; shipping them too meant two ways of
+ * obtaining the same thing — this one at load, `syncStates` on every reshape —
+ * and only one of them exercised by the tests. Grouping costs 12 ms on 250k
+ * patients, once, against a load already measured in seconds.
  */
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const request = event.data
@@ -27,7 +33,6 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
     const states = clock.measure("summarise states", () => summariseStates(result.store))
     const stateOrder = clock.measure("order states", () => orderStates(states))
-    const typologies = clock.measure("group typologies", () => buildTypologies(result.store))
 
     const payload = toPayload(result.store)
 
@@ -39,7 +44,6 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       format: result.format,
       states: states.map(toStatePayload),
       stateOrder: stateOrder.map(Number),
-      typologies,
       timings: [...result.timings, ...clock.timings],
     }
 

@@ -1,7 +1,7 @@
 import type { StorePayload } from "../core/model/transfer.ts"
 import type { SourceFormat } from "../core/parse/ingest.ts"
 import type { ColumnMapping, MappingCandidate } from "../core/parse/schema.ts"
-import type { StateSummary, Typology } from "../core/types.ts"
+import type { StateSummary } from "../core/types.ts"
 import type { Timing } from "../core/util/time.ts"
 
 export interface IngestRequest {
@@ -28,7 +28,6 @@ export interface IngestSuccess {
   readonly format: SourceFormat
   readonly states: readonly StateSummaryPayload[]
   readonly stateOrder: readonly number[]
-  readonly typologies: readonly Typology[]
   readonly timings: readonly Timing[]
 }
 

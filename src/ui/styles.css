@@ -8,7 +8,8 @@
   --accent: #9473d2;
   --danger: hsl(6 80% 64%);
   --radius: 6px;
-  --gap: 12px;
+  --gap: 1rem;
+  --gap-small: 0.5rem;
 
   color-scheme: dark;
   font-family:
@@ -38,16 +39,17 @@ body {
 
 .app__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+
   gap: var(--gap);
-  padding: var(--gap);
+  padding: var(--gap-small) var(--gap);
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
 
 .app__header h1 {
   margin: 0;
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -58,7 +60,7 @@ body {
 
 .app__main {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 320px 1fr;
   gap: var(--gap);
   padding: var(--gap);
   min-height: 0;
@@ -218,7 +220,7 @@ body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-bottom: 4px;
+  /* margin-bottom: 4px; */
 }
 .controls__group[disabled] {
   opacity: 0.4;
@@ -522,6 +524,51 @@ body {
 
 /* ---------- silhouettes ---------- */
 
+.silhouettes__tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+}
+.silhouettes__tab {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 9px;
+  background: none;
+  border: none;
+  /* The underline is the tab, so it has to sit on the container's own rule. */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.silhouettes__tab:hover {
+  color: var(--text);
+}
+.silhouettes__tab[data-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.silhouettes__tab em {
+  font-style: normal;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.silhouettes__empty {
+  margin: 0;
+  padding: 10px 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.silhouettes__empty b {
+  color: var(--text);
+  font-weight: 500;
+}
+
 .silhouettes__controls {
   display: flex;
   gap: 3px;
@@ -693,6 +740,22 @@ body {
   flex-wrap: wrap;
   gap: 3px;
 }
+.silhouettes__selection-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.silhouettes__selection-foot .button:first-of-type {
+  margin-left: auto;
+}
+.silhouettes__selection-foot .button:first-of-type:not(.button--tiny) {
+  margin-left: 0;
+  flex: 1;
+}
+.silhouettes__more {
+  color: var(--muted);
+  font-size: 11px;
+}
 .silhouettes__chip {
   display: block;
   padding: 1px;
@@ -700,6 +763,290 @@ body {
   border: 1px solid var(--accent);
   border-radius: 4px;
   cursor: pointer;
+}
+
+/* ---------- modal ---------- */
+
+.modal {
+  width: min(1180px, 94vw);
+  max-height: 88vh;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  overflow: hidden;
+
+  /* `allow-discrete` is what lets a transition run on the way *out* too: the
+     element's `display` and top-layer membership are discrete properties, and
+     without it the dialog would vanish before the fade could play. */
+  opacity: 0;
+  transform: scale(0.98);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    display 140ms allow-discrete,
+    overlay 140ms allow-discrete;
+}
+.modal[open] {
+  opacity: 1;
+  transform: scale(1);
+}
+@starting-style {
+  .modal[open] {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+.modal::backdrop {
+  background: hsl(230 20% 5% / 0.6);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.modal__head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 10px var(--gap);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.modal__head h2 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.modal__head .button {
+  margin-left: auto;
+}
+.modal__note {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.modal__body {
+  padding: var(--gap);
+  overflow: auto;
+  max-height: calc(88vh - 44px);
+}
+
+/* ---------- path explorer ---------- */
+
+.paths__hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.paths__hint--end {
+  color: var(--accent);
+}
+
+.paths__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+/* The path as one line: a -> b -> c, in the chart's colours. */
+.flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.flow li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.flow__arrow {
+  color: var(--muted);
+  font-size: 11px;
+}
+.flow__step {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.flow__step:hover {
+  border-color: var(--accent);
+}
+/* Where the path currently ends — the step everything downstream is scoped to. */
+.flow__step[data-active="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+}
+.flow__step--root {
+  color: var(--muted);
+}
+.flow__step em {
+  font-style: normal;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.flow__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.paths__actions {
+  display: flex;
+  gap: 4px;
+}
+.paths__actions .button:first-child {
+  flex: 1;
+}
+
+/* The board: one column per step, each column holding its alternatives. */
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-width: 0;
+}
+.board__flow {
+  padding-bottom: var(--gap);
+  border-bottom: 1px solid var(--line);
+}
+.board__columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.board__column {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.board__column--end {
+  flex-basis: 160px;
+}
+.board__column-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.board__column-count {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.board__options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.board__option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 7px 7px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.board__option:hover {
+  border-color: var(--line);
+}
+.board__option[data-chosen="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+}
+/* Not taken: still readable, still clickable — the point of keeping the level
+   on screen is that you can see what you gave up and change your mind. */
+.board__option[data-dimmed="true"] {
+  opacity: 0.45;
+}
+.board__option[data-empty="true"] .board__name {
+  text-decoration: line-through;
+}
+
+.board__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board__count {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.board__count em {
+  font-style: normal;
+  margin-left: 5px;
+  opacity: 0.7;
+}
+.board__ends {
+  grid-column: 2 / -1;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--accent);
+}
+/* A share bar along the bottom edge, under the text rather than beside it. */
+.board__bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+.board__map {
+  border-top: 1px solid var(--line);
+  padding-top: var(--gap);
+}
+.pathmap {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
 }
 
 /* ---------- states panel ---------- */
@@ -1069,17 +1416,50 @@ body {
   color: inherit;
   font: inherit;
   font-family: ui-monospace, monospace;
-  cursor: pointer;
 }
 .table__row:hover {
   background: var(--surface-2);
 }
+/* Selected scopes the chart; expanded only opens the clusters below. The two
+   are independent, so they must not look the same. */
 .table__row[data-selected="true"] {
   border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+}
+.table__row[data-expanded="true"] {
   background: var(--surface-2);
 }
 .table__row[data-pending="true"] {
   opacity: 0.5;
+}
+
+.table__select,
+.table__expand {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.table__select {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+.table__select:hover {
+  color: var(--accent);
+}
+.table__row[data-selected="true"] .table__select {
+  color: var(--accent);
+}
+.table__expand {
+  color: var(--muted);
+  line-height: 1;
+}
+.table__expand:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 .table__row em {
   font-style: normal;

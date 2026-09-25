@@ -42,7 +42,7 @@ export function FileLoader(): React.JSX.Element {
       <div className="loader__row">
         <button
           type="button"
-          className="button button--primary"
+          className="button button--primary button--tiny"
           onClick={() => inputRef.current?.click()}
           disabled={status === "loading"}
         >
@@ -65,7 +65,7 @@ export function FileLoader(): React.JSX.Element {
             <button
               key={template.url}
               type="button"
-              className="button"
+              className="button button--tiny"
               onClick={() => void loadUrl(template.url)}
               disabled={status === "loading"}
             >

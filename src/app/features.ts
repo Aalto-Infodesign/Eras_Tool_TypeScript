@@ -23,4 +23,4 @@
  * (`ColorSource` already has the case) and the median-path ribbons in
  * `ui/RibbonLayer.tsx`.
  */
-export const CLUSTERING_ENABLED: boolean = false
+export const CLUSTERING_ENABLED: boolean = true

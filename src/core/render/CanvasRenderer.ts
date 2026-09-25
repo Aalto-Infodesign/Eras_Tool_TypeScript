@@ -59,9 +59,12 @@ export class CanvasRenderer implements TrajectoryRenderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, this.width, this.height)
 
-    this.paint(this.geometry, view, view.opacity, view.lineWidth)
+    // A faded bulk layer is opaque in a pre-mixed colour, so crossings land on
+    // the same value instead of stacking. See `ViewState.bulkFade`.
+    const fading = view.bulkFade > 0
+    this.paint(this.geometry, view, fading ? 1 : view.opacity, view.lineWidth, view.bulkFade)
     // Canvas2D gets spine thickness for free — unlike WebGL, `lineWidth` works.
-    this.paint(this.overlay, view, view.overlayOpacity, view.overlayWidth)
+    this.paint(this.overlay, view, view.overlayOpacity, view.overlayWidth, 0)
   }
 
   private paint(
@@ -69,6 +72,7 @@ export class CanvasRenderer implements TrajectoryRenderer {
     view: ViewState,
     opacity: number,
     lineWidth: number,
+    fade: number,
   ): void {
     const { ctx } = this
     if (geometry === null || geometry.segmentCount === 0 || opacity <= 0) return
@@ -130,7 +134,11 @@ export class CanvasRenderer implements TrajectoryRenderer {
     }
 
     for (const [rgb, path] of paths) {
-      ctx.strokeStyle = `#${rgb.toString(16).padStart(6, "0")}`
+      // Mixed once per colour rather than per segment — there are a handful of
+      // states and up to a million segments.
+      ctx.strokeStyle = `#${(fade > 0 ? mixToward(rgb, view.background, fade) : rgb)
+        .toString(16)
+        .padStart(6, "0")}`
       ctx.stroke(path)
     }
 
@@ -149,4 +157,15 @@ export class CanvasRenderer implements TrajectoryRenderer {
     this.geometry = null
     this.overlay = null
   }
+}
+
+/** Packed RGB mixed toward a 0–1 background colour. */
+function mixToward(rgb: number, background: readonly [number, number, number], fade: number): number {
+  const mix = (channel: number, target: number): number =>
+    Math.round(channel + (target * 255 - channel) * fade)
+
+  const r = mix((rgb >> 16) & 255, background[0])
+  const g = mix((rgb >> 8) & 255, background[1])
+  const b = mix(rgb & 255, background[2])
+  return (r << 16) | (g << 8) | b
 }
