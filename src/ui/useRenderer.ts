@@ -8,16 +8,28 @@ export interface Size {
   readonly height: number
 }
 
-/** Creates (and recreates on backend change) a renderer bound to a canvas. */
+/**
+ * Creates (and recreates on backend change) a renderer bound to a canvas.
+ *
+ * Takes the *element*, not a ref to it. A ref object is referentially stable, so
+ * an effect that depends on it never re-runs — which is fine while the element
+ * outlives the component and silently wrong the moment it does not. Switching to
+ * the small-multiples view unmounts this canvas and switching back mounts a new
+ * one; with a ref in the dependency list the renderer stayed bound to the
+ * detached original and the chart went blank until a reload. The element is
+ * delivered by a callback ref, so React tells us when it changes.
+ */
 export function useRenderer(
-  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  canvas: HTMLCanvasElement | null,
   kind: RendererKind,
 ): TrajectoryRenderer | null {
   const [renderer, setRenderer] = useState<TrajectoryRenderer | null>(null)
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (canvas === null) return
+    if (canvas === null) {
+      setRenderer(null)
+      return
+    }
 
     const instance = createRenderer(canvas, kind)
     setRenderer(instance)
@@ -26,18 +38,26 @@ export function useRenderer(
       instance.dispose()
       setRenderer(null)
     }
-  }, [canvasRef, kind])
+  }, [canvas, kind])
 
   return renderer
 }
 
-/** Element size in CSS pixels, kept live by a ResizeObserver. */
-export function useElementSize(ref: React.RefObject<HTMLElement | null>): Size {
+/**
+ * Element size in CSS pixels, kept live by a ResizeObserver.
+ *
+ * Takes the element for the same reason `useRenderer` does: a ref object never
+ * changes identity, so the observer would stay attached to whichever element
+ * happened to be mounted first.
+ */
+export function useElementSize(element: HTMLElement | null): Size {
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
 
   useEffect(() => {
-    const element = ref.current
-    if (element === null) return
+    if (element === null) {
+      setSize({ width: 0, height: 0 })
+      return
+    }
 
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect
@@ -51,7 +71,7 @@ export function useElementSize(ref: React.RefObject<HTMLElement | null>): Size {
 
     observer.observe(element)
     return () => observer.disconnect()
-  }, [ref])
+  }, [element])
 
   return size
 }

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 
 import { useEras } from "../app/store.ts"
 import { Panel } from "./Panel.tsx"
@@ -31,6 +31,7 @@ export function ClusterTable(): React.JSX.Element | null {
   const clusterRun = useEras((s) => s.clusterRun)
   const clusterVersion = useEras((s) => s.clusterVersion)
   const status = useEras((s) => s.clusterStatus)
+  const selectedClusters = useEras((s) => s.selectedClusters)
   const selectedTypologies = useEras((s) => s.selectedTypologies)
   const toggleTypology = useEras((s) => s.toggleTypology)
   const clearTypologies = useEras((s) => s.clearTypologies)
@@ -62,6 +63,40 @@ export function ClusterTable(): React.JSX.Element | null {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typologies, clusterRun, clusterVersion, sortKey])
+
+  // Read by the reveal effect, which must not re-run when the sort changes.
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+
+  /*
+   * Reveal whatever was last isolated.
+   *
+   * The link between the chart and this panel used to run one way: pick a
+   * cluster here and the chart isolated it. Clicking a spine now goes the other
+   * way, and landing on a selection you cannot find in a windowed list of
+   * thousands is worse than no link at all — the ids export lives in the
+   * expanded row, so the row has to come to you.
+   *
+   * Keyed on the last selected cluster alone: re-sorting or a streamed result
+   * must not yank the list back to it while you are reading somewhere else.
+   */
+  const lastSelected = selectedClusters[selectedClusters.length - 1]
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (lastSelected === undefined || clusterRun === null) return
+    const ref = clusterRun.clusters[lastSelected]
+    if (ref === undefined) return
+
+    setExpanded(ref.typologyKey)
+    const position = rowsRef.current.findIndex((row) => row.typology.key === ref.typologyKey)
+    if (position === -1) return
+
+    // A third of the way down rather than at the very top, so the rows around
+    // it stay visible and the jump reads as a scroll rather than a reset.
+    bodyRef.current?.scrollTo({ top: Math.max(0, position * ROW_HEIGHT - viewportHeight / 3) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastSelected])
 
   if (store === null) return null
 
@@ -141,6 +176,7 @@ export function ClusterTable(): React.JSX.Element | null {
       <div
         className="table__body"
         ref={(node) => {
+          bodyRef.current = node
           if (node !== null && node.clientHeight !== viewportHeight) {
             setViewportHeight(node.clientHeight)
           }

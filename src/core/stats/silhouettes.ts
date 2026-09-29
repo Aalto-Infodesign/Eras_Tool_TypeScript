@@ -94,3 +94,36 @@ export function typologyIds(
   }
   return out
 }
+
+/**
+ * Row labels for one sequence, numbering the repeats: `a`, `b`, `a (2)`, `c`.
+ *
+ * A focused typology draws a rule per *step*, so a state it revisits appears
+ * twice — two rules, same name, same colour. Without the ordinal they read as a
+ * duplicate rather than as a return, which is the one thing that view exists to
+ * show. Only states that actually repeat are numbered; adding `(1)` to every
+ * label would be noise on the sequences that never come back.
+ */
+export function sequenceLabels(
+  states: Uint16Array,
+  stateNames: readonly string[],
+): string[] {
+  const total = new Map<number, number>()
+  for (let i = 0; i < states.length; i++) {
+    const state = states[i] as number
+    total.set(state, (total.get(state) ?? 0) + 1)
+  }
+
+  const seen = new Map<number, number>()
+  const out: string[] = []
+
+  for (let i = 0; i < states.length; i++) {
+    const state = states[i] as number
+    const name = stateNames[state] ?? String(state)
+    const visit = (seen.get(state) ?? 0) + 1
+    seen.set(state, visit)
+    out.push((total.get(state) ?? 1) > 1 ? `${name} (${visit})` : name)
+  }
+
+  return out
+}

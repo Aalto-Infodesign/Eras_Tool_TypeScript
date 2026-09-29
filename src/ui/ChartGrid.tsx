@@ -10,6 +10,16 @@ interface Props {
   readonly xDomain: readonly [number, number]
   /** stateId → row, fractional while a reorder animates. */
   readonly rowOf: Float32Array
+  /**
+   * Row → state id. Usually the visible state order; while a typology is
+   * focused, its sequence — so a state it revisits gets a second rule with the
+   * same colour and label, which is exactly the reading that view is for.
+   */
+  readonly rowStates: readonly number[]
+  /** Row → label. Repeats within a focused sequence carry their visit number. */
+  readonly rowLabels: readonly string[]
+  /** Rows are steps of one sequence, so the row *is* the index. */
+  readonly byPosition: boolean
   readonly palette: Palette
 }
 
@@ -36,10 +46,13 @@ export function ChartGrid({
   marginY,
   xDomain,
   rowOf,
+  rowStates,
+  rowLabels,
+  byPosition,
   palette,
 }: Props): React.JSX.Element | null {
   const store = useEras((s) => s.store)
-  const stateOrder = useEras((s) => s.visibleStates)
+  const stateOrder = rowStates
 
   const project = useMemo(() => {
     const [x0, x1] = xDomain
@@ -87,19 +100,35 @@ export function ChartGrid({
       </g>
 
       <g className="chart__rows">
-        {stateOrder.map((state) => (
-          <g key={state} transform={`translate(0 ${project.y(rowOf[state] ?? 0).toFixed(1)})`}>
-            <line
-              x1={0}
-              x2={width}
-              className="chart__rowline"
-              stroke={palette.css[state] ?? "currentColor"}
-            />
-            <text x={6} y={-4} className="chart__rowlabel" fill={palette.css[state] ?? "currentColor"}>
-              {`${Math.round(rowOf[state] ?? 0)} · ${store.stateNames[state]}`}
-            </text>
-          </g>
-        ))}
+        {/*
+         * Keyed and positioned by *row*, not by state. A focused sequence can
+         * visit one state twice, which is two rules with the same id — keying on
+         * the state collapsed them into one and `rowOf[state]` sent both to the
+         * same place. The row is the index here; only the shared-order reading
+         * resolves it through `rowOf`, which is also what carries the fractional
+         * positions of an animated reorder.
+         */}
+        {stateOrder.map((state, index) => {
+          const row = byPosition ? index : (rowOf[state] ?? index)
+          return (
+            <g key={index} transform={`translate(0 ${project.y(row).toFixed(1)})`}>
+              <line
+                x1={0}
+                x2={width}
+                className="chart__rowline"
+                stroke={palette.css[state] ?? "currentColor"}
+              />
+              <text
+                x={6}
+                y={-4}
+                className="chart__rowlabel"
+                fill={palette.css[state] ?? "currentColor"}
+              >
+                {`${Math.round(row)} · ${rowLabels[index] ?? store.stateNames[state]}`}
+              </text>
+            </g>
+          )
+        })}
       </g>
     </svg>
   )

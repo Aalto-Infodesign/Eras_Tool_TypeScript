@@ -1322,6 +1322,100 @@ body {
   color: var(--text);
   font-weight: 600;
 }
+/* ---------- small multiples ---------- */
+
+.chart__surface--grid {
+  cursor: default;
+  overflow: auto;
+  padding: 10px;
+}
+.multiples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.multiples__grid {
+  position: relative;
+  width: 100%;
+}
+.multiples__canvas {
+  position: absolute;
+  inset: 0;
+  /* Pointer events belong to the panel buttons layered over it. */
+  pointer-events: none;
+}
+.multiples__panel {
+  position: absolute;
+  display: block;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.multiples__panel[data-hovered="true"] {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.multiples__foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.multiples__key {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.multiples__steps {
+  margin-left: 4px;
+}
+/* The sequence as a colour run — one swatch per step, repeats included. */
+.multiples__swatch {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  flex: 0 0 auto;
+}
+.multiples__size {
+  margin-left: auto;
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+}
+.multiples__more {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chart__stats-isolated {
+  padding: 1px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.chart__stats-isolated:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
 .chart__stats-kind {
   margin-left: auto;
   color: var(--accent);

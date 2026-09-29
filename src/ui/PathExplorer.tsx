@@ -16,6 +16,7 @@ import { PathFlow } from "./PathFlow.tsx"
 import { PathMinimap } from "./PathMinimap.tsx"
 
 const MAP_HEIGHT = 150
+const MAP_HEIGHT_EXPANDED = 300
 
 /**
  * Walking the cohort forward one state at a time.
@@ -314,7 +315,7 @@ function PathBoard({
           tree={tree}
           current={current}
           width={width}
-          height={MAP_HEIGHT}
+          height={MAP_HEIGHT_EXPANDED}
           palette={palette.css}
         />
       </footer>

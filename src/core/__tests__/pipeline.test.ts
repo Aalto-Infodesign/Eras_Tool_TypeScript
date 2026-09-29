@@ -414,3 +414,63 @@ describe("geometry", () => {
     expect(geometry.segmentCount).toBeLessThan(store.eventCount)
   })
 })
+
+describe("position rows", () => {
+  const { store } = ingest(TSV, "demo.tsv")
+  const palette = buildPalette(store.stateNames.length)
+
+  it("gives a revisited state a row of its own", () => {
+    const looping = buildStore([
+      {
+        id: "loop",
+        trajectory: ["a", "b", "a", "c"],
+        switchEventAge: [20, 30, 40, 50],
+        years: [2000, 2010, 2020, 2030],
+        diseaseDuration: 30,
+      },
+    ])
+
+    const geometry = buildGeometry(looping, Uint32Array.of(0), {
+      axis: "age",
+      color: { kind: "state", palette: buildPalette(looping.stateNames.length) },
+      rowsFrom: "position",
+    })
+
+    // Three links, each descending exactly one row — a pure diagonal, where the
+    // state-keyed reading would send the third point back up to row 0.
+    expect(geometry.segmentCount).toBe(3)
+    for (let s = 0; s < geometry.segmentCount; s++) {
+      expect(geometry.positions[s * 4 + 1]).toBe(s)
+      expect(geometry.positions[s * 4 + 3]).toBe(s + 1)
+    }
+  })
+
+  it("counts positions per patient, not across the buffer", () => {
+    const geometry = buildGeometry(store, Uint32Array.of(0, 1), {
+      axis: "age",
+      color: { kind: "state", palette },
+      rowsFrom: "position",
+    })
+
+    // Every patient starts again at row 0.
+    const firstOfEach = new Set<number>()
+    let previous = -1
+    for (let s = 0; s < geometry.segmentCount; s++) {
+      const patient = geometry.segmentPatient[s] as number
+      if (patient !== previous) {
+        firstOfEach.add(geometry.positions[s * 4 + 1] as number)
+        previous = patient
+      }
+    }
+    expect([...firstOfEach]).toEqual([0])
+  })
+
+  it("leaves the default reading alone", () => {
+    const geometry = buildGeometry(store, Uint32Array.of(0), {
+      axis: "age",
+      color: { kind: "state", palette },
+    })
+    const a = store.stateNames.indexOf("a")
+    expect(geometry.positions[1]).toBe(a)
+  })
+})

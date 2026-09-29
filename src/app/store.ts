@@ -64,6 +64,20 @@ export type ChartLayer = "lines" | "lumps" | "medoids"
 
 export type LayerToggles = Readonly<Record<ChartLayer, boolean>>
 
+/**
+ * One chart, or one chart per selected typology.
+ *
+ * Overlaying several typologies in a single frame is the honest default — they
+ * share a cohort and a time axis — but past a handful of them the picture stops
+ * separating: paths cross on shared rows and the slope of any one sequence, the
+ * thing you are actually comparing, is lost in the others. Small multiples trade
+ * the shared frame for legibility, and each panel then earns its *own* row
+ * ordering, which is the point: with every typology laid out along its own
+ * sequence, a shallow path and a steep one differ visibly rather than by
+ * happening to use different rows of one global order.
+ */
+export type ChartView = "overlay" | "multiples"
+
 interface ErasState {
   status: LoadStatus
   error: string | null
@@ -149,6 +163,18 @@ interface ErasState {
 
   colorBy: ColorBy
   layers: LayerToggles
+  chartView: ChartView
+  /**
+   * One typology, drawn along its own sequence rather than the global rows.
+   *
+   * Set by clicking a small multiple: the panel's reading — a ruler per *step*,
+   * so a revisited state gets a second rule instead of the line doubling back —
+   * carries over to the full-size chart. It is its own field rather than
+   * "exactly one typology is selected" because it is a different *projection*,
+   * not a narrower selection, and inferring it would make a two-typology
+   * selection silently change what a row means.
+   */
+  focusedTypology: string | null
   showMedoids: boolean
 
   loadFile(file: File): Promise<void>
@@ -181,6 +207,9 @@ interface ErasState {
   clearClusters(): void
   setColorBy(colorBy: ColorBy): void
   toggleLayer(layer: ChartLayer): void
+  setChartView(view: ChartView): void
+  /** Draws one typology along its own steps, in the full-size chart. */
+  focusTypology(key: string | null): void
   setShowMedoids(show: boolean): void
 
   reset(): void
@@ -241,7 +270,9 @@ const initial = {
   selectedClusters: [],
 
   colorBy: "state" as ColorBy,
-  layers: { lines: true, lumps: false, medoids: false } as LayerToggles,
+  layers: { lines: false, lumps: false, medoids: true } as LayerToggles,
+  chartView: "overlay" as ChartView,
+  focusedTypology: null,
   showMedoids: true,
 }
 
@@ -354,6 +385,8 @@ export const useEras = create<ErasState>()((set, get) => {
       // A splice merges typologies, so a selected key can simply cease to exist.
       selectedTypologies: reshaped ? [] : selectedTypologies.filter((key) => keys.has(key)),
       pathPrefix: reshaped ? [] : get().pathPrefix,
+      // A splice merges sequences, so the focused one may no longer exist.
+      focusedTypology: reshaped ? null : get().focusedTypology,
       stateOrder: order,
       visibleStates: order.filter((state) => !removedSet.has(state)),
       reshapeTimings: removedStates.length > 0 ? clock.timings : [],
@@ -367,10 +400,7 @@ export const useEras = create<ErasState>()((set, get) => {
     recompute()
   }
 
-  const receive = (
-    fileName: string,
-    result: Awaited<ReturnType<IngestClient["ingest"]>>,
-  ): void => {
+  const receive = (fileName: string, result: Awaited<ReturnType<IngestClient["ingest"]>>): void => {
     const store = fromPayload(result.store)
     const selection = new Selection(store.patientCount)
     const population = new Selection(store.patientCount)
@@ -412,6 +442,7 @@ export const useEras = create<ErasState>()((set, get) => {
       filters: emptyFilters,
       selectedTypologies: [],
       pathPrefix: [],
+      focusedTypology: null,
       selectedPatients: [],
       hoveredPatient: null,
       xDomainOverride: null,
@@ -423,7 +454,7 @@ export const useEras = create<ErasState>()((set, get) => {
       selectedClusters: [],
       // The medoid layer has nothing to draw until the new run produces one,
       // and an empty chart reads as a bug rather than as "still working".
-      layers: { ...get().layers, lines: true, medoids: false },
+      layers: { ...get().layers, lines: false, medoids: true },
     })
 
     /*
@@ -504,20 +535,22 @@ export const useEras = create<ErasState>()((set, get) => {
           : [...current, key],
         // Picking a card by hand makes the selection something no prefix
         // describes, and a breadcrumb that no longer matches the selection is
-        // worse than no breadcrumb.
+        // worse than no breadcrumb. The same goes for the focused projection.
         pathPrefix: [],
+        focusedTypology: null,
       })
       recompute()
     },
 
     clearTypologies() {
-      set({ selectedTypologies: [], pathPrefix: [] })
+      set({ selectedTypologies: [], pathPrefix: [], focusedTypology: null })
       recompute()
     },
 
     selectPath(prefix) {
       const { typologies } = get()
       set({
+        focusedTypology: null,
         pathPrefix: prefix,
         selectedTypologies:
           prefix.length === 0
@@ -711,6 +744,30 @@ export const useEras = create<ErasState>()((set, get) => {
 
     setColorBy(colorBy) {
       set({ colorBy })
+    },
+    setChartView(chartView) {
+      // The per-step projection belongs to a single typology; leaving the grid
+      // for the overlay without one would put the chart on rows that no longer
+      // mean anything.
+      set({ chartView, focusedTypology: chartView === "multiples" ? null : get().focusedTypology })
+    },
+
+    focusTypology(key) {
+      if (key === null) {
+        set({ focusedTypology: null })
+        recompute()
+        return
+      }
+      set({
+        focusedTypology: key,
+        chartView: "overlay",
+        selectedTypologies: [key],
+        pathPrefix: [],
+        // A cluster from another typology would be drawn against a ladder it
+        // never walked; focusing starts the projection clean.
+        selectedClusters: [],
+      })
+      recompute()
     },
     toggleLayer(layer) {
       const layers = get().layers

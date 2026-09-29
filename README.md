@@ -286,8 +286,127 @@ it means, which the legend says (`Line opacity` / `Line backdrop`).
 
 The spines land in the renderer's **overlay buffer** when the hairlines are
 there to sit on top of, so toggling them never touches the megabytes underneath.
-Alone, they are the bulk, which also makes them what hover picks from — picking
-reads the bulk buffer, so it follows whichever layer is the primary one.
+
+#### The spines own the interaction
+
+With an overlay up, the bulk underneath is **not hit-tested at all**. Picking one
+line out of a quarter-million was never a useful answer — what is under the
+cursor is whichever of several thousand overlapping trajectories happened to be
+drawn last, and all a click did was pin it. Picking a spine names a *cluster*,
+which is a group you can isolate, read and export.
+
+So clicking a spine isolates its cluster, and isolating scopes the hairlines to
+`clusterMembers` — the people that medoid stands for. That is what makes a
+medoid legible as a representative rather than as an arbitrary trajectory drawn
+thicker: the summary and its evidence end up on screen together, with the
+density underneath being that cluster's own.
+
+Hit-testing the spines is a plain CPU `SegmentIndex`, built eagerly. The layer is
+capped at `TOP_CLUSTER_LIMIT` spines of a few segments each, so the index is a
+few thousand entries where the bulk's is a million — which is why *that* one is
+idle-scheduled and abandoned above a ceiling and this one is simply built. It
+also works identically on both backends: the GPU pick reads back only what is in
+the bulk buffer, so it could never see the overlay.
+
+The link to the panel now runs both ways. It used to go one: pick a cluster in
+the table and the chart isolated it. Clicking a spine goes the other, and the
+table expands that typology and scrolls its row a third of the way down — landing
+on a selection you cannot find in a windowed list of thousands is worse than no
+link, and the ids export lives in the expanded row. The reveal is keyed on the
+last selected cluster alone, so a re-sort or a streamed result cannot yank the
+list back to it while you are reading somewhere else.
+
+### Small multiples
+
+Overlaying several typologies in one frame is the honest default — they share a
+cohort and a time axis. Past a handful it stops separating: paths cross on shared
+rows and the slope of any one sequence, which is the thing being compared,
+disappears into the others.
+
+The grid trades the shared frame for legibility, and in doing so buys something
+the shared frame cannot give: **each panel gets one row per step of its own
+sequence**. Not one per state — per *step*, so a sequence that revisits a state
+gets a second rule for the second visit rather than sending the line back up.
+Every trajectory is then strictly descending, every panel is a pure diagonal, and
+the only thing that varies is the slope: how long that cohort took to walk its
+path.
+
+That is a projection the global row order cannot express, and it is why the same
+reading is the right shape for loops later — a loop is a line that goes backwards
+only because the rows were chosen before the sequence was.
+
+`GeometryOptions.rowsFrom: "position"` does it, putting the step index in the
+buffer where the state id normally goes, so the row lookup becomes the identity
+and nothing downstream has to know. Two things are then held constant so the
+slopes are comparable at all: the x domain, and the **pitch between rows**.
+Panels are top-aligned with every row a fixed number of pixels below the last, so
+a four-step panel is a shorter ladder than a seven-step one rather than a
+stretched one — spreading a short sequence over the same height would make it
+read as the shallowest path on screen when it may be the steepest.
+
+Clicking a panel carries that projection to the full-size chart
+(`focusedTypology`): one typology, on its own steps, with a rule per visit. It is
+its own field rather than "exactly one typology is selected", because it is a
+different *projection* and not a narrower selection — inferring it would make a
+two-typology selection silently change what a row means. The box plots hide while
+it is on: they answer a per-state question that positions do not have.
+
+Repeated rows carry their visit number — `a (1)`, `b`, `a (2)`, `c` — and only
+states that actually repeat get one, since `(1)` on every label is noise on the
+sequences that never come back. Two rules with the same name and colour otherwise
+read as a duplicate rather than as a return, which is the one thing the view is
+for.
+
+Getting there needed the grid to stop keying its rows by state. It drew one `<g>`
+per entry keyed on the state id and positioned by `rowOf[state]`, which is
+exactly right for a shared order and wrong twice over for a sequence: React
+collapsed the duplicate keys, and both visits resolved to the same row. Rows are
+keyed and placed by *index* now; only the shared-order reading resolves through
+`rowOf`, which is also what carries the fractional positions of an animated
+reorder.
+
+**Clustering follows into the focused view**, and it is the natural pairing: a
+typology is exactly the unit `buildDurationMatrix` works on, so the spines there
+are that typology's own clusters, drawn on the same ladder. A spine is then a
+cluster's path *through this sequence*, clicking one isolates it as everywhere
+else, and the hairlines below become its members. Focusing clears any cluster
+selection first — a cluster from another typology would be plotted against a
+ladder it never walked.
+
+The source→target **gradient** comes back exactly, which it does not in the
+Canvas2D backend generally. The GPU gets it per vertex for free; the 2D painter
+batches by colour and steps at the midpoint, because a gradient per segment would
+mean a `createLinearGradient` per line. But in a panel every segment on row `i`
+descends to row `i + 1`, so the colour transition is a function of y alone — and
+y is affine along the segment, so *one vertical gradient per step* reproduces the
+per-vertex interpolation rather than approximating it. Single-digit gradients per
+panel. `PaintOptions.rowColors` turns it on, and it is only correct where rows
+are the steps of one shared sequence: under the global state order a segment can
+run between any two rows and the transition is not a function of y.
+
+It is **one canvas, not one per panel**. Browsers cap live contexts, and a grid
+of them would mean a resize observer and a draw loop each; the panels are
+rectangles of a single context. That is what `core/render/paint2d.ts` was
+extracted for — `CanvasRenderer` had the only copy of the drawing loop, and the
+grid needed the same thing against a sub-rectangle with its own row lookup.
+Headers and hit areas are DOM over the pixels.
+
+Capped at 24 panels: past that the grid is no more readable than the overlay it
+replaced, and the canvas gets absurdly tall. With nothing selected it shows the
+biggest few, so switching to it never lands on an empty grid.
+
+It is a test, and deliberately narrow: no medoid overlay, no lumps, no hover
+picking. Enough to answer whether comparing slopes side by side is worth losing
+the shared frame.
+
+One bug it exposed, worth recording because the shape recurs: `useRenderer` and
+`useElementSize` took a *ref* and listed it as a dependency. A ref object is
+referentially stable, so those effects never re-ran — fine while the element
+outlives the component, silently wrong the moment it does not. Switching to the
+grid unmounted the canvas and switching back mounted a new one; the renderer
+stayed bound to the detached original and the chart went blank until a reload.
+Both now take the element, delivered by a callback ref, so React reports the
+change.
 
 ### Zero-length segments
 

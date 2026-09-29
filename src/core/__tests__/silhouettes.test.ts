@@ -4,6 +4,7 @@ import { buildStore } from "../model/build.ts"
 import {
   filteredSizes,
   orderFromTypology,
+  sequenceLabels,
   typologyIds,
   uniqueStates,
 } from "../stats/silhouettes.ts"
@@ -76,5 +77,32 @@ describe("typologyIds", () => {
     const mask = new Uint8Array(store.patientCount)
     mask[1] = 1
     expect(typologyIds(typologies, store.ids, mask)).toEqual(["p2"])
+  })
+})
+
+describe("sequenceLabels", () => {
+  const names = ["a", "b", "c"]
+
+  it("numbers only the states that actually repeat", () => {
+    expect(sequenceLabels(Uint16Array.of(0, 1, 0, 2), names)).toEqual([
+      "a (1)",
+      "b",
+      "a (2)",
+      "c",
+    ])
+  })
+
+  it("leaves a sequence that never returns unnumbered", () => {
+    expect(sequenceLabels(Uint16Array.of(0, 1, 2), names)).toEqual(["a", "b", "c"])
+  })
+
+  it("counts each state's visits independently", () => {
+    expect(sequenceLabels(Uint16Array.of(0, 1, 0, 1, 0), names)).toEqual([
+      "a (1)",
+      "b (1)",
+      "a (2)",
+      "b (2)",
+      "a (3)",
+    ])
   })
 })

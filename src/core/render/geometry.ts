@@ -61,9 +61,30 @@ export type ColorSource =
 /** Half-width of a single-event patient's mark, as a fraction of the axis extent. */
 const SINGLE_EVENT_MARK = 0.002
 
+/**
+ * What `positions.y` carries, and therefore what a row means.
+ *
+ * `state` is the chart's normal reading: one row per state, shared by every
+ * trajectory, so a sequence that revisits a state doubles back on itself.
+ *
+ * `position` gives one row per *step* of the sequence instead — the second
+ * visit to a state gets a rule of its own, below the first. Within a single
+ * typology, where every patient walks the same sequence, that makes every
+ * trajectory strictly descending: the picture becomes a pure diagonal whose
+ * slope is the only thing varying, which is what makes two typologies
+ * comparable side by side. It also stops a loop from reading as a line going
+ * backwards, which is the shape a global ordering cannot express.
+ *
+ * Only meaningful over one typology at a time; across typologies, position `i`
+ * is a different state in each and the rows would mean nothing.
+ */
+export type RowSource = "state" | "position"
+
 export interface GeometryOptions {
   readonly axis: XAxis
   readonly color: ColorSource
+  /** Defaults to `state`. See `RowSource`. */
+  readonly rowsFrom?: RowSource
   /** Drop segments whose duration falls outside this. */
   readonly durationRange?: { min: number; max: number } | null
 }
@@ -96,6 +117,7 @@ export function buildGeometry(
 
   const xs = options.axis === "age" ? store.ages : store.years
   const { color, durationRange } = options
+  const byPosition = options.rowsFrom === "position"
   const paletteBytes = color.palette.bytes
 
   /*
@@ -115,6 +137,8 @@ export function buildGeometry(
   // Per-patient state the emitter reads. Hoisted so the emitter is one closure
   // for the whole call rather than one per patient.
   let patient = 0
+  /** First event of the patient being emitted, for `rowsFrom: "position"`. */
+  let patientStart = 0
   let clusterR = 0
   let clusterG = 0
   let clusterB = 0
@@ -139,9 +163,9 @@ export function buildGeometry(
 
     const pos = s * 4
     positions[pos + 0] = (xs[from] as number) - spread
-    positions[pos + 1] = sourceState
+    positions[pos + 1] = byPosition ? from - patientStart : sourceState
     positions[pos + 2] = (xs[to] as number) + spread
-    positions[pos + 3] = targetState
+    positions[pos + 3] = byPosition ? to - patientStart : targetState
 
     const col = s * 8
     if (color.kind === "cluster") {
@@ -176,6 +200,7 @@ export function buildGeometry(
     patient = p
     const start = store.offsets[p] as number
     const end = store.offsets[p + 1] as number
+    patientStart = start
 
     // Resolved once per patient: a patient belongs to exactly one cluster, so
     // the lookup does not belong in the per-segment loop.

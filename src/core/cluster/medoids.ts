@@ -35,9 +35,17 @@ export function medoidPatients(
   selectedClusters: readonly number[],
   mask: Uint8Array | null,
   limit: number = TOP_CLUSTER_LIMIT,
+  /**
+   * Restrict to one typology's clusters — what the focused view draws, where
+   * the rows are that sequence's own steps and a cluster from anywhere else
+   * would be plotted against a ladder it never walked. There are at most a few
+   * dozen, so the ranked cap never comes into it.
+   */
+  typologyKey: string | null = null,
 ): Uint32Array {
   const passes = (ref: ClusterRef): boolean =>
-    mask === null || mask[ref.medoidPatient] === 1
+    (typologyKey === null || ref.typologyKey === typologyKey) &&
+    (mask === null || mask[ref.medoidPatient] === 1)
 
   if (selectedClusters.length > 0) {
     const chosen = new Set(selectedClusters)
@@ -60,4 +68,47 @@ function collect(refs: readonly ClusterRef[]): Uint32Array {
   const out = new Uint32Array(refs.length)
   for (let i = 0; i < refs.length; i++) out[i] = (refs[i] as ClusterRef).medoidPatient
   return out
+}
+
+/**
+ * Every patient assigned to the chosen clusters.
+ *
+ * This is what makes a medoid legible as a *representative* rather than as one
+ * more line: isolate a spine and the hairlines under it become exactly the
+ * people it stands for, so the summary and its evidence are on screen together.
+ * Without it a medoid is indistinguishable from an arbitrary trajectory drawn
+ * thicker.
+ *
+ * `mask` is the current selection, applied for the same reason it is applied to
+ * the spines: a cluster member the filters have excluded is not on screen and
+ * must not be drawn back in by isolating their cluster.
+ */
+export function clusterMembers(
+  run: ClusterRun,
+  selectedClusters: readonly number[],
+  mask: Uint8Array | null,
+): Uint32Array {
+  const out: number[] = []
+
+  for (const globalIndex of selectedClusters) {
+    // `globalIndex` indexes `clusters` by construction — the builder assigns it
+    // as the position the ref is pushed to.
+    const ref = run.clusters[globalIndex]
+    if (ref === undefined) continue
+
+    const result = run.byTypology.get(ref.typologyKey)
+    if (result === undefined) continue
+
+    for (let row = 0; row < result.n; row++) {
+      if (result.assignment[row] !== ref.localCluster) continue
+      const patient = result.patients[row] as number
+      if (mask !== null && mask[patient] !== 1) continue
+      out.push(patient)
+    }
+  }
+
+  // Ascending, so the geometry builder walks the store's patient columns
+  // forwards rather than jumping between typologies.
+  out.sort((a, b) => a - b)
+  return Uint32Array.from(out)
 }

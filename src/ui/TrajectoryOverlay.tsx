@@ -9,6 +9,9 @@ interface Props {
   readonly marginY: number
   readonly xDomain: readonly [number, number]
   readonly rowOf: Float32Array
+  readonly rowCount: number
+  /** Rows are steps of one sequence, so a path descends by position. */
+  readonly byPosition: boolean
   readonly palette: Palette
 }
 
@@ -31,18 +34,19 @@ export function TrajectoryOverlay({
   marginY,
   xDomain,
   rowOf,
+  rowCount,
+  byPosition,
   palette,
 }: Props): React.JSX.Element | null {
   const store = useEras((s) => s.store)
-  const stateOrder = useEras((s) => s.visibleStates)
   const axis = useEras((s) => s.axis)
   const hovered = useEras((s) => s.hoveredPatient)
   const selected = useEras((s) => s.selectedPatients)
 
   const rowHeight = useMemo(() => {
     const usable = Math.max(height - 2 * marginY, 1)
-    return usable / Math.max(stateOrder.length, 1)
-  }, [height, marginY, stateOrder.length])
+    return usable / Math.max(rowCount, 1)
+  }, [height, marginY, rowCount])
 
   const toPixels = useMemo(() => {
     const [x0, x1] = xDomain
@@ -65,8 +69,9 @@ export function TrajectoryOverlay({
 
       const points: string[] = []
       for (let e = start; e < end; e++) {
-        const state = store.stateIds[e] as number
-        const row = rowOf[state] as number
+        // Focused, the row *is* the step — the same thing `buildGeometry` puts
+        // in the buffer, recomputed here because the overlay reads the store.
+        const row = byPosition ? e - start : (rowOf[store.stateIds[e] as number] as number)
         if (row < 0) continue
         points.push(`${toPixels.x(xs[e] as number).toFixed(1)},${toPixels.y(row).toFixed(1)}`)
       }
@@ -78,7 +83,7 @@ export function TrajectoryOverlay({
         isHovered: patient === hovered,
       }
     })
-  }, [store, hovered, selected, axis, rowOf, toPixels])
+  }, [store, hovered, selected, axis, rowOf, byPosition, toPixels])
 
   if (store === null || width === 0 || height === 0) return null
 

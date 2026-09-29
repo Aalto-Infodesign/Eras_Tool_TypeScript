@@ -5,7 +5,7 @@ import { buildDurationMatrices, buildDurationMatrix } from "../cluster/matrices.
 import { singleCluster, TypologyClusterer } from "../cluster/meanshift.ts"
 import { NeighborIndex } from "../cluster/NeighborIndex.ts"
 import { buildRibbons } from "../cluster/ribbons.ts"
-import { medoidPatients } from "../cluster/medoids.ts"
+import { clusterMembers, medoidPatients } from "../cluster/medoids.ts"
 import { ClusterRunBuilder } from "../cluster/run.ts"
 import {
   CLUSTER_DEFAULTS,
@@ -488,5 +488,54 @@ describe("medoid layer", () => {
     const mask = new Uint8Array(10).fill(1)
     mask[7] = 0
     expect([...medoidPatients(run, [], mask)]).toEqual([8, 9])
+  })
+})
+
+describe("isolating a cluster", () => {
+  it("hands back the patients a medoid stands for", () => {
+    const { store, results } = clusterAll(twoSpeedRecords(40, 25))
+    const builder = new ClusterRunBuilder(store.patientCount, CLUSTER_DEFAULTS)
+    for (const result of results) builder.add(result)
+    const run = builder.snapshot()
+
+    const ref = run.clusters[0]!
+    const members = clusterMembers(run, [ref.globalIndex], null)
+
+    expect(members.length).toBe(ref.size)
+    // The medoid is one of the people it represents, not a synthetic average.
+    expect([...members]).toContain(ref.medoidPatient)
+    // Ascending, and every member really is assigned to that cluster.
+    for (let i = 1; i < members.length; i++) {
+      expect(members[i]!).toBeGreaterThan(members[i - 1]!)
+    }
+    for (const patient of members) {
+      expect(run.clusterOfPatient[patient]).toBe(ref.globalIndex)
+    }
+  })
+
+  it("leaves out members the filters have excluded", () => {
+    const { store, results } = clusterAll(twoSpeedRecords(40, 25))
+    const builder = new ClusterRunBuilder(store.patientCount, CLUSTER_DEFAULTS)
+    for (const result of results) builder.add(result)
+    const run = builder.snapshot()
+
+    const ref = run.clusters[0]!
+    const all = clusterMembers(run, [ref.globalIndex], null)
+    const mask = new Uint8Array(store.patientCount).fill(1)
+    mask[all[0] as number] = 0
+
+    expect(clusterMembers(run, [ref.globalIndex], mask).length).toBe(all.length - 1)
+  })
+
+  it("unions several clusters without duplicating anyone", () => {
+    const { store, results } = clusterAll(twoSpeedRecords(40, 25))
+    const builder = new ClusterRunBuilder(store.patientCount, CLUSTER_DEFAULTS)
+    for (const result of results) builder.add(result)
+    const run = builder.snapshot()
+
+    const chosen = run.clusters.slice(0, 2).map((c) => c.globalIndex)
+    const members = clusterMembers(run, chosen, null)
+    expect(new Set(members).size).toBe(members.length)
+    expect(members.length).toBe(run.clusters.slice(0, 2).reduce((n, c) => n + c.size, 0))
   })
 })

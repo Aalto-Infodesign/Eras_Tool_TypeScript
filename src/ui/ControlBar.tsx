@@ -31,6 +31,8 @@ export function ControlBar(): React.JSX.Element {
 
   const layers = useEras((s) => s.layers)
   const toggleLayer = useEras((s) => s.toggleLayer)
+  const chartView = useEras((s) => s.chartView)
+  const setChartView = useEras((s) => s.setChartView)
   const clusterRun = useEras((s) => s.clusterRun)
   const clusterStatus = useEras((s) => s.clusterStatus)
 
@@ -97,6 +99,37 @@ export function ControlBar(): React.JSX.Element {
             </button>
           ),
         )}
+      </fieldset>
+
+      {/*
+       * One frame or one per typology. A test: the grid drops the layer
+       * toggles, the medoid overlay and hover, and keeps only the hairlines —
+       * enough to answer whether comparing slopes side by side is worth losing
+       * the shared frame for.
+       */}
+      <fieldset className="controls__group">
+        <legend>View</legend>
+        {(
+          [
+            ["overlay", "Overlay"],
+            ["multiples", "Small multiples"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className="button"
+            data-selected={chartView === value}
+            title={
+              value === "multiples"
+                ? "One panel per selected typology, each ordered along its own sequence"
+                : "Every typology in one frame, on the shared row order"
+            }
+            onClick={() => setChartView(value)}
+          >
+            {label}
+          </button>
+        ))}
       </fieldset>
 
       {/*

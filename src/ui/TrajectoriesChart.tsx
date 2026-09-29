@@ -5,6 +5,7 @@ import { SegmentIndex } from "../core/render/picking.ts"
 import type { ViewState } from "../core/render/Renderer.ts"
 import { ChartGrid } from "./ChartGrid.tsx"
 import { LumpLayer } from "./LumpLayer.tsx"
+import { SmallMultiples } from "./SmallMultiples.tsx"
 import { StateBoxPlots } from "./StateBoxPlots.tsx"
 import { TrajectoryOverlay } from "./TrajectoryOverlay.tsx"
 import { useAnimatedView } from "./useAnimatedView.ts"
@@ -33,22 +34,30 @@ const CPU_PICK_LIMIT = 200_000
 const MAX_ANIMATED_SEGMENTS = 50_000
 
 export function TrajectoriesChart(): React.JSX.Element {
-  const stateOrder = useEras((s) => s.visibleStates)
   const axis = useEras((s) => s.axis)
   const rendererKind = useEras((s) => s.rendererKind)
   const opacity = useEras((s) => s.opacity)
   const layers = useEras((s) => s.layers)
+  const chartView = useEras((s) => s.chartView)
+  const clusterRun = useEras((s) => s.clusterRun)
+  const toggleCluster = useEras((s) => s.toggleCluster)
   const setHoveredPatient = useEras((s) => s.setHoveredPatient)
   const togglePatient = useEras((s) => s.togglePatient)
 
   const {
     bulk,
     overlay,
+    isIsolated,
+    linesDrawn,
     lumps,
     medoidCount,
     stateStats,
     populationStats,
     rowOf: targetRowOf,
+    rowStates,
+    rowLabels,
+    byPosition,
+    geometryOptions,
     statePalette,
     buildMs,
     xDomain: targetXDomain,
@@ -59,18 +68,24 @@ export function TrajectoriesChart(): React.JSX.Element {
    * box plots and the density field move as one. `useChartLayers` keeps feeding
    * the *target*; nothing it builds depends on the tweened value.
    */
-  const { xDomain, rows: rowOf, isAnimating } = useAnimatedView(targetXDomain, targetRowOf, {
+  const {
+    xDomain,
+    rows: rowOf,
+    isAnimating,
+  } = useAnimatedView(targetXDomain, targetRowOf, {
     enabled: (bulk?.segmentCount ?? 0) <= MAX_ANIMATED_SEGMENTS,
     // Switching between age and calendar changes what an x value *is*, so the
     // old and new domains are not two points on one scale to travel between.
     xUnits: axis,
   })
 
-  const containerRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Elements, not refs: both views mount their own container, and the effects
+  // below have to follow the one that is actually on screen. See `useRenderer`.
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
 
-  const size = useElementSize(containerRef)
-  const renderer = useRenderer(canvasRef, rendererKind)
+  const size = useElementSize(container)
+  const renderer = useRenderer(canvas, rendererKind)
   const frame = useFrameClock()
 
   /**
@@ -79,7 +94,10 @@ export function TrajectoriesChart(): React.JSX.Element {
    * entirely above `CPU_PICK_LIMIT`.
    */
   const needsCpuIndex =
-    rendererKind === "canvas2d" && bulk !== null && bulk.segmentCount > 0 && bulk.segmentCount <= CPU_PICK_LIMIT
+    rendererKind === "canvas2d" &&
+    bulk !== null &&
+    bulk.segmentCount > 0 &&
+    bulk.segmentCount <= CPU_PICK_LIMIT
 
   const [index, setIndex] = useState<SegmentIndex | null>(null)
   useEffect(() => {
@@ -96,7 +114,7 @@ export function TrajectoriesChart(): React.JSX.Element {
 
     const handle = schedule(() => {
       if (cancelled) return
-      setIndex(SegmentIndex.build(bulk, stateOrder.length, targetXDomain, targetRowOf))
+      setIndex(SegmentIndex.build(bulk, rowStates.length, targetXDomain, targetRowOf))
     })
 
     return () => {
@@ -104,7 +122,22 @@ export function TrajectoriesChart(): React.JSX.Element {
       if (typeof cancelIdleCallback === "function") cancelIdleCallback(handle as number)
       else window.clearTimeout(handle as number)
     }
-  }, [needsCpuIndex, bulk, stateOrder.length, targetXDomain, targetRowOf])
+  }, [needsCpuIndex, bulk, rowStates.length, targetXDomain, targetRowOf])
+
+  /**
+   * Hit-testing for the spines.
+   *
+   * Always a CPU index, and always affordable: the medoid layer is capped at
+   * `TOP_CLUSTER_LIMIT` spines of a handful of segments each, so this is a few
+   * thousand entries where the bulk index would be a million — which is why
+   * that one is idle-scheduled and skipped above a ceiling and this one is just
+   * built. It also works identically on both backends, where the GPU pick reads
+   * back only what is in the *bulk* buffer and so could never see the overlay.
+   */
+  const medoidIndex = useMemo(() => {
+    if (overlay === null || overlay.segmentCount === 0 || rowStates.length === 0) return null
+    return SegmentIndex.build(overlay, rowStates.length, targetXDomain, targetRowOf)
+  }, [overlay, rowStates.length, targetXDomain, targetRowOf])
 
   useEffect(() => {
     renderer?.setGeometry(bulk)
@@ -118,12 +151,12 @@ export function TrajectoriesChart(): React.JSX.Element {
     renderer?.setRowLookup(rowOf)
   }, [renderer, rowOf])
 
-  const background = useBackgroundColor(containerRef)
+  const background = useBackgroundColor(container)
 
   const view = useMemo<ViewState>(
     () => ({
       xDomain,
-      rowCount: stateOrder.length,
+      rowCount: rowStates.length,
       marginY: MARGIN_Y,
       /*
        * With the hairlines off, whatever is in the bulk slot is a summary — a
@@ -131,8 +164,8 @@ export function TrajectoriesChart(): React.JSX.Element {
        * has nothing left to stack and a low opacity would only make them hard
        * to see. The control bar disables the slider to say so.
        */
-      opacity: layers.lines ? opacity : 1,
-      lineWidth: layers.lines ? 1 : 2,
+      opacity: linesDrawn ? opacity : 1,
+      lineWidth: linesDrawn ? 1 : 2,
       /*
        * The hairlines step back whenever something is drawn over them. The
        * slider still runs in the same direction — low is faint either way — but
@@ -140,12 +173,12 @@ export function TrajectoriesChart(): React.JSX.Element {
        * than how much alpha each line carries, so crossings stop accumulating
        * and the layer reads as one sheet under the overlay.
        */
-      bulkFade: layers.lines && (layers.medoids || layers.lumps) ? 1 - opacity : 0,
+      bulkFade: linesDrawn && (overlay !== null || layers.lumps) ? 1 - opacity : 0,
       background,
       overlayOpacity: 0.95,
       overlayWidth: 2.5,
     }),
-    [xDomain, stateOrder.length, opacity, layers, background],
+    [xDomain, rowStates.length, opacity, layers, linesDrawn, overlay, background],
   )
 
   useEffect(() => {
@@ -160,45 +193,58 @@ export function TrajectoriesChart(): React.JSX.Element {
 
   const toDataSpace = useCallback(
     (px: number, py: number, rect: DOMRect): { x: number; row: number } | null => {
-      if (stateOrder.length === 0) return null
+      if (rowStates.length === 0) return null
 
       const [x0, x1] = xDomain
       const x = x0 + (px / rect.width) * (x1 - x0)
 
       const usable = Math.max(rect.height - 2 * MARGIN_Y, 1)
-      const row = ((py - MARGIN_Y) / usable) * stateOrder.length - 0.5
+      const row = ((py - MARGIN_Y) / usable) * rowStates.length - 0.5
 
       return { x, row }
     },
-    [xDomain, stateOrder.length],
+    [xDomain, rowStates.length],
   )
 
   /**
    * GPU first: one scissored draw plus a `readPixels` of a few hundred pixels,
    * independent of how many trajectories are on screen.
+   *
+   * With spines over the hairlines, the interaction belongs to the spines
+   * alone. Picking one line out of a quarter-million was never a useful answer
+   * — the thing under the cursor is whichever of several thousand overlapping
+   * trajectories happened to be drawn last — whereas picking a spine names a
+   * cluster, which is a group you can then isolate, read and export. So when
+   * the overlay is up, the bulk underneath is not hit-tested at all.
    */
   const pickPatient = useCallback(
     (clientX: number, clientY: number): number | null => {
-      const element = containerRef.current
+      const element = container
       // Hit-testing a moving chart answers for where things were, not where the
       // pointer is; hover simply pauses for the few hundred ms of a transition.
-      if (element === null || bulk === null || isAnimating) return null
+      if (element === null || isAnimating) return null
 
       const rect = element.getBoundingClientRect()
       const localX = clientX - rect.left
       const localY = clientY - rect.top
+      const point = toDataSpace(localX, localY, rect)
+
+      if (overlay !== null) {
+        if (medoidIndex === null || point === null) return null
+        return medoidIndex.pick(point.x, point.row, PICK_RADIUS_DATA)?.patient ?? null
+      }
+
+      if (bulk === null) return null
 
       if (renderer !== null) {
         const segment = renderer.pickAt(localX, localY, view, PICK_RADIUS_PX)
         if (segment !== null) return bulk.segmentPatient[segment] ?? null
       }
 
-      if (index === null) return null
-      const point = toDataSpace(localX, localY, rect)
-      if (point === null) return null
+      if (index === null || point === null) return null
       return index.pick(point.x, point.row, PICK_RADIUS_DATA)?.patient ?? null
     },
-    [bulk, renderer, view, index, toDataSpace, isAnimating],
+    [bulk, overlay, medoidIndex, renderer, view, index, toDataSpace, isAnimating, container],
   )
 
   // Hover is coalesced to one pick per animation frame: a pointer fires many more
@@ -231,21 +277,70 @@ export function TrajectoriesChart(): React.JSX.Element {
   const handleClick = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const patient = pickPatient(event.clientX, event.clientY)
-      if (patient !== null) togglePatient(patient)
+      if (patient === null) return
+
+      /*
+       * On the spine layer a click means its *cluster*, not its patient. The
+       * medoid is a real person, but what it is standing there for is the
+       * group — so clicking isolates that group, which scopes the hairlines to
+       * its members and reveals its row in the cluster panel. Pinning the one
+       * trajectory, which is all a click used to do, is the less useful of the
+       * two readings and the one the overlay already gives on hover.
+       */
+      if (layers.medoids && clusterRun !== null) {
+        const cluster = clusterRun.clusterOfPatient[patient] ?? -1
+        if (cluster >= 0) {
+          toggleCluster(cluster)
+          return
+        }
+      }
+
+      togglePatient(patient)
     },
-    [pickPatient, togglePatient],
+    [pickPatient, togglePatient, layers.medoids, clusterRun, toggleCluster],
   )
+
+  if (chartView === "multiples") {
+    return (
+      <div className="chart">
+        {/*
+         * The grid keeps the container so the width measurement and the
+         * background sampling are the same ones the overlay view uses; only
+         * what is drawn inside it changes.
+         */}
+        <div ref={setContainer} className="chart__surface chart__surface--grid">
+          <SmallMultiples
+            width={size.width}
+            opacity={opacity}
+            xDomain={xDomain}
+            options={geometryOptions}
+            background={background}
+          />
+        </div>
+        <ChartStats
+          rowCount={rowStates.length}
+          isIsolated={isIsolated}
+          segmentCount={bulk?.segmentCount ?? 0}
+          lumpCount={lumps.length}
+          medoidCount={medoidCount}
+          buildMs={buildMs}
+          frameRef={frame.ref}
+          indexing={false}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="chart">
       <div
-        ref={containerRef}
+        ref={setContainer}
         className="chart__surface"
         onPointerMove={handlePointerMove}
         onPointerLeave={() => setHoveredPatient(null)}
         onPointerDown={handleClick}
       >
-        <canvas ref={canvasRef} className="chart__canvas" />
+        <canvas ref={setCanvas} className="chart__canvas" />
 
         <ChartGrid
           width={size.width}
@@ -253,9 +348,13 @@ export function TrajectoriesChart(): React.JSX.Element {
           marginY={MARGIN_Y}
           xDomain={xDomain}
           rowOf={rowOf}
+          rowStates={rowStates}
+          rowLabels={rowLabels}
+          byPosition={byPosition}
           palette={statePalette}
         />
 
+        {!byPosition && (
         <StateBoxPlots
           width={size.width}
           height={size.height}
@@ -266,6 +365,7 @@ export function TrajectoriesChart(): React.JSX.Element {
           population={populationStats}
           palette={statePalette}
         />
+        )}
 
         {layers.lumps && (
           <LumpLayer
@@ -275,7 +375,7 @@ export function TrajectoriesChart(): React.JSX.Element {
             marginY={MARGIN_Y}
             xDomain={xDomain}
             rowOf={rowOf}
-            rowCount={stateOrder.length}
+            rowCount={rowStates.length}
             palette={statePalette}
           />
         )}
@@ -286,12 +386,15 @@ export function TrajectoriesChart(): React.JSX.Element {
           marginY={MARGIN_Y}
           xDomain={xDomain}
           rowOf={rowOf}
+          rowCount={rowStates.length}
+          byPosition={byPosition}
           palette={statePalette}
         />
       </div>
 
       <ChartStats
-        rowCount={stateOrder.length}
+        rowCount={rowStates.length}
+        isIsolated={isIsolated}
         segmentCount={bulk?.segmentCount ?? 0}
         lumpCount={lumps.length}
         medoidCount={medoidCount}
@@ -305,6 +408,7 @@ export function TrajectoriesChart(): React.JSX.Element {
 
 function ChartStats({
   rowCount,
+  isIsolated,
   segmentCount,
   lumpCount,
   medoidCount,
@@ -313,6 +417,7 @@ function ChartStats({
   indexing,
 }: {
   rowCount: number
+  isIsolated: boolean
   segmentCount: number
   lumpCount: number
   medoidCount: number
@@ -325,6 +430,9 @@ function ChartStats({
   const selection = useEras((s) => s.selection)
   const cohortSize = useEras((s) => s.cohortSize)
   const selectionVersion = useEras((s) => s.selectionVersion)
+  const clearClusters = useEras((s) => s.clearClusters)
+  const focused = useEras((s) => s.focusedTypology)
+  const focusTypology = useEras((s) => s.focusTypology)
 
   // Sampled on a timer, not per frame, so the readout never drives the render loop.
   const [frameMs, setFrameMs] = useState(0)
@@ -355,16 +463,36 @@ function ChartStats({
         draw <b>{frameMs.toFixed(2)}ms</b>
       </span>
       {/*
-        * What the layer was *asked* to draw, beside what it drew. When the two
-        * disagree — patients selected but no segments — the fault is between
-        * the store and the buffers, and this says so without a debugger.
-        */}
+       * What the layer was *asked* to draw, beside what it drew. When the two
+       * disagree — patients selected but no segments — the fault is between
+       * the store and the buffers, and this says so without a debugger.
+       */}
       <span key={selectionVersion}>
         <b>{(selection?.count ?? 0).toLocaleString()}</b> / {cohortSize.toLocaleString()} patients
       </span>
       <span>
         <b>{rowCount}</b> rows
       </span>
+      {focused !== null && (
+        <button
+          type="button"
+          className="chart__stats-isolated"
+          title="Back to the shared row order"
+          onClick={() => focusTypology(null)}
+        >
+          {focused} ✕
+        </button>
+      )}
+      {isIsolated && (
+        <button
+          type="button"
+          className="chart__stats-isolated"
+          title="Stop isolating and show the whole selection again"
+          onClick={() => clearClusters()}
+        >
+          isolated ✕
+        </button>
+      )}
       <span className="chart__stats-kind">{rendererKind}</span>
       {indexing && <span className="chart__stats-pending">indexing…</span>}
     </div>
@@ -379,13 +507,10 @@ function ChartStats({
  * faded layer reads as a wash of the wrong tint. Sampled once on mount: a theme
  * switch at runtime would need this to re-read, and there is no theme switch.
  */
-function useBackgroundColor(
-  ref: React.RefObject<HTMLElement | null>,
-): readonly [number, number, number] {
+function useBackgroundColor(element: HTMLElement | null): readonly [number, number, number] {
   const [color, setColor] = useState<readonly [number, number, number]>([0, 0, 0])
 
   useEffect(() => {
-    const element = ref.current
     if (element === null) return
 
     const parsed = getComputedStyle(element)
@@ -394,9 +519,13 @@ function useBackgroundColor(
       .map(Number)
 
     if (parsed?.length === 3) {
-      setColor([(parsed[0] as number) / 255, (parsed[1] as number) / 255, (parsed[2] as number) / 255])
+      setColor([
+        (parsed[0] as number) / 255,
+        (parsed[1] as number) / 255,
+        (parsed[2] as number) / 255,
+      ])
     }
-  }, [ref])
+  }, [element])
 
   return color
 }
