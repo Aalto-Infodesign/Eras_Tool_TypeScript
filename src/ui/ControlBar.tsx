@@ -112,7 +112,7 @@ export function ControlBar(): React.JSX.Element {
         {(
           [
             ["overlay", "Overlay"],
-            ["multiples", "Small multiples"],
+            ["multiples", "S.M."],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -140,9 +140,7 @@ export function ControlBar(): React.JSX.Element {
        */}
       <fieldset className="controls__group controls__group--wide" disabled={!layers.lines}>
         <legend
-          title={
-            isBackdrop ? "Mixed into the background, so crossings do not stack" : undefined
-          }
+          title={isBackdrop ? "Mixed into the background, so crossings do not stack" : undefined}
         >
           {isBackdrop ? "Line backdrop" : "Line opacity"}
         </legend>
