@@ -17,6 +17,7 @@ export class CanvasRenderer implements TrajectoryRenderer {
   private readonly ctx: CanvasRenderingContext2D
   private geometry: Geometry | null = null
   private overlay: Geometry | null = null
+  private highlight: Geometry | null = null
   private dpr = 1
   private width = 1
   private height = 1
@@ -52,6 +53,10 @@ export class CanvasRenderer implements TrajectoryRenderer {
     this.overlay = geometry
   }
 
+  setHighlightGeometry(geometry: Geometry | null): void {
+    this.highlight = geometry
+  }
+
   draw(view: ViewState): void {
     const { ctx } = this
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -61,6 +66,11 @@ export class CanvasRenderer implements TrajectoryRenderer {
     // the same value instead of stacking. See `ViewState.bulkFade`.
     const fading = view.bulkFade > 0
     this.paint(this.geometry, view, fading ? 1 : view.opacity, view.lineWidth, view.bulkFade)
+    // The hovered cluster's members, over the flattened field and under the
+    // spine they belong to.
+    if (view.highlightOpacity > 0) {
+      this.paint(this.highlight, view, view.highlightOpacity, view.lineWidth, 0)
+    }
     // Canvas2D gets spine thickness for free — unlike WebGL, `lineWidth` works.
     this.paint(this.overlay, view, view.overlayOpacity, view.overlayWidth, 0)
   }
@@ -96,5 +106,6 @@ export class CanvasRenderer implements TrajectoryRenderer {
   dispose(): void {
     this.geometry = null
     this.overlay = null
+    this.highlight = null
   }
 }

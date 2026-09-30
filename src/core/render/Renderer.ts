@@ -30,6 +30,16 @@ export interface ViewState {
   readonly overlayOpacity: number
   /** Spine width in CSS pixels. */
   readonly overlayWidth: number
+  /**
+   * Alpha for the highlight layer — the members of the cluster under the
+   * cursor. `0` skips the pass.
+   *
+   * Alpha here, not fade, and deliberately: the highlight is one cluster's
+   * worth of hairlines, so stacking is the reading — where they bunch is where
+   * that cluster's people actually moved together. The bulk it sits on is
+   * flattened by `bulkFade` at the same moment, which is what separates the two.
+   */
+  readonly highlightOpacity: number
 }
 
 export interface TrajectoryRenderer {
@@ -52,6 +62,18 @@ export interface TrajectoryRenderer {
    * spines never rebuilds or re-uploads the bulk buffers.
    */
   setOverlayGeometry(geometry: Geometry | null): void
+  /**
+   * A third slot, between the bulk and the spines: the members of the cluster
+   * being pointed at.
+   *
+   * Its own buffers for the same reason the overlay has its own — it changes on
+   * hover, where the bulk changes only when the data does, and re-uploading a
+   * megabyte buffer to raise a few hundred lines would make the interaction
+   * cost what the whole view costs. Drawn *over* the dimmed bulk rather than
+   * carved out of it, so the members show at the sum of the two, which is the
+   * intent: they are still part of the field, just the part being named.
+   */
+  setHighlightGeometry(geometry: Geometry | null): void
   draw(view: ViewState): void
   /**
    * Segment index under a CSS-pixel position, or `null`.

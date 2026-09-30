@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { useEras } from "../app/store.ts"
+import { clusterStale, focusedTypologyOf, useEras } from "../app/store.ts"
+import type { Geometry } from "../core/render/geometry.ts"
 import { SegmentIndex } from "../core/render/picking.ts"
+import type { Palette } from "../core/render/palette.ts"
 import type { ViewState } from "../core/render/Renderer.ts"
+import { repeatedSteps } from "../core/stats/silhouettes.ts"
 import { ChartGrid } from "./ChartGrid.tsx"
 import { LumpLayer } from "./LumpLayer.tsx"
 import { SmallMultiples } from "./SmallMultiples.tsx"
 import { StateBoxPlots } from "./StateBoxPlots.tsx"
 import { TrajectoryOverlay } from "./TrajectoryOverlay.tsx"
-import { useAnimatedView } from "./useAnimatedView.ts"
+import { StateDots } from "./StateDots.tsx"
+import { createHoverSettler, DIM_FADE, HIGHLIGHT_OPACITY } from "./hover.ts"
+import { useAnimatedScalar, useAnimatedView } from "./useAnimatedView.ts"
 import { useChartLayers } from "./useChartLayers.ts"
+import { useClusterRun } from "./useClusterRun.ts"
 import { useElementSize, useFrameClock, useRenderer } from "./useRenderer.ts"
 
 const MARGIN_Y = 16
@@ -32,21 +38,38 @@ const CPU_PICK_LIMIT = 200_000
  * actually pays for, and it is the number the stats line already reports.
  */
 const MAX_ANIMATED_SEGMENTS = 50_000
+/** How long the pointer rests on the chip before it spells the sequence out. */
+const REVEAL_MS = 320
+/**
+ * Draw budget, in milliseconds, above which the highlight lands rather than
+ * fades.
+ *
+ * Measured rather than guessed: `useFrameClock` keeps a moving average of what
+ * this scene's draws actually cost, so the ceiling calibrates itself to the
+ * dataset and the machine instead of to a segment count someone picked once. A
+ * fade frame is one `drawArrays` with two uniforms changed — the same draw the
+ * chart already does on every view change — so if that is comfortably inside a
+ * frame the animation is free, and if it is not, a stuttering fade reads worse
+ * than an instant one.
+ */
+const FADE_FRAME_BUDGET_MS = 7
 
 export function TrajectoriesChart(): React.JSX.Element {
   const axis = useEras((s) => s.axis)
   const rendererKind = useEras((s) => s.rendererKind)
   const opacity = useEras((s) => s.opacity)
   const layers = useEras((s) => s.layers)
-  const chartView = useEras((s) => s.chartView)
-  const clusterRun = useEras((s) => s.clusterRun)
+  const clusterRun = useClusterRun()
   const toggleCluster = useEras((s) => s.toggleCluster)
   const setHoveredPatient = useEras((s) => s.setHoveredPatient)
+  const setHoveredCluster = useEras((s) => s.setHoveredCluster)
   const togglePatient = useEras((s) => s.togglePatient)
 
   const {
     bulk,
     overlay,
+    highlight,
+    highlightCount,
     isIsolated,
     linesDrawn,
     lumps,
@@ -57,6 +80,7 @@ export function TrajectoriesChart(): React.JSX.Element {
     rowStates,
     rowLabels,
     byPosition,
+    mode,
     geometryOptions,
     statePalette,
     buildMs,
@@ -143,15 +167,53 @@ export function TrajectoriesChart(): React.JSX.Element {
     renderer?.setGeometry(bulk)
   }, [renderer, bulk])
 
+  const baseFade = linesDrawn && (overlay !== null || layers.lumps) ? 1 - opacity : 0
+
+  /*
+   * How far into the highlight the chart is, 0 to 1 — one number driving both
+   * halves of it, so the field receding and the members arriving are the same
+   * gesture rather than two that happen to start together.
+   */
+  const focus = useAnimatedScalar(
+    highlight === null ? 0 : 1,
+    frame.ref.current <= FADE_FRAME_BUDGET_MS,
+  )
+
+  /*
+   * The members stay uploaded until the fade is over.
+   *
+   * Clearing the slot the moment the pointer leaves would give the fade-out
+   * nothing to fade — the layer would vanish and the field would come back up
+   * behind it. At `highlightOpacity` 0 the pass is skipped anyway, so holding
+   * one cluster's geometry costs nothing but says what to draw on the way down.
+   */
+  const [lit, setLit] = useState<Geometry | null>(null)
+
+  useEffect(() => {
+    if (highlight !== null) setLit(highlight)
+    else if (focus === 0) setLit(null)
+  }, [highlight, focus])
+
   useEffect(() => {
     renderer?.setOverlayGeometry(overlay)
   }, [renderer, overlay])
+
+  useEffect(() => {
+    renderer?.setHighlightGeometry(lit)
+  }, [renderer, lit])
 
   useEffect(() => {
     renderer?.setRowLookup(rowOf)
   }, [renderer, rowOf])
 
   const background = useBackgroundColor(container)
+
+  /*
+   * The hairlines step back whenever something is drawn over them, and further
+   * still while a cluster is being pointed at — including when the bulk *is* the
+   * spine layer, where dimming the other spines is what separates the one under
+   * the cursor from the thousand beside it.
+   */
 
   const view = useMemo<ViewState>(
     () => ({
@@ -167,18 +229,18 @@ export function TrajectoriesChart(): React.JSX.Element {
       opacity: linesDrawn ? opacity : 1,
       lineWidth: linesDrawn ? 1 : 2,
       /*
-       * The hairlines step back whenever something is drawn over them. The
-       * slider still runs in the same direction — low is faint either way — but
-       * it now picks how far the colour is mixed into the background rather
+       * The slider still runs in the same direction — low is faint either way —
+       * but it now picks how far the colour is mixed into the background rather
        * than how much alpha each line carries, so crossings stop accumulating
-       * and the layer reads as one sheet under the overlay.
+       * and the layer reads as one sheet under whatever is above it.
        */
-      bulkFade: linesDrawn && (overlay !== null || layers.lumps) ? 1 - opacity : 0,
+      bulkFade: baseFade + (Math.max(baseFade, DIM_FADE) - baseFade) * focus,
       background,
       overlayOpacity: 0.95,
       overlayWidth: 2.5,
+      highlightOpacity: HIGHLIGHT_OPACITY * focus,
     }),
-    [xDomain, rowStates.length, opacity, layers, linesDrawn, overlay, background],
+    [xDomain, rowStates.length, opacity, linesDrawn, baseFade, focus, background],
   )
 
   useEffect(() => {
@@ -247,6 +309,35 @@ export function TrajectoriesChart(): React.JSX.Element {
     [bulk, overlay, medoidIndex, renderer, view, index, toDataSpace, isAnimating, container],
   )
 
+  /**
+   * Whether a pick lands on the spine layer, which is what makes a hit mean a
+   * *cluster* rather than a person.
+   *
+   * `clusterOfPatient` answers for any patient, not only for medoids, so
+   * without this a hairline under the cursor would isolate whatever cluster its
+   * owner happens to sit in — a reading nobody asked for, off a line nobody can
+   * aim at. Spines are pickable when they are over the hairlines, or when they
+   * are the only line-shaped layer and so are the bulk themselves.
+   */
+  const pickingSpines =
+    layers.medoids && medoidCount > 0 && (overlay !== null || !linesDrawn) && clusterRun !== null
+
+  const clusterAt = useCallback(
+    (patient: number | null): number | null => {
+      if (patient === null || !pickingSpines || clusterRun === null) return null
+      const cluster = clusterRun.clusterOfPatient[patient] ?? -1
+      return cluster >= 0 ? cluster : null
+    },
+    [pickingSpines, clusterRun],
+  )
+
+  // Settled rather than applied per frame: see `createHoverSettler`.
+  const settler = useMemo(() => createHoverSettler<number | null>(setHoveredCluster), [
+    setHoveredCluster,
+  ])
+
+  useEffect(() => () => settler.cancel(), [settler])
+
   // Hover is coalesced to one pick per animation frame: a pointer fires many more
   // move events than there are frames, and every extra pick is a GPU round-trip.
   const pendingPick = useRef<{ x: number; y: number } | null>(null)
@@ -261,11 +352,21 @@ export function TrajectoriesChart(): React.JSX.Element {
         rafHandle.current = 0
         const point = pendingPick.current
         if (point === null) return
-        setHoveredPatient(pickPatient(point.x, point.y))
+        const patient = pickPatient(point.x, point.y)
+        // The trace follows the pointer; the cluster waits for it to stop.
+        setHoveredPatient(patient)
+        settler.queue(clusterAt(patient))
       })
     },
-    [pickPatient, setHoveredPatient],
+    [pickPatient, setHoveredPatient, settler, clusterAt],
   )
+
+  const handlePointerLeave = useCallback(() => {
+    setHoveredPatient(null)
+    // Leaving is unambiguous, so it lands at once rather than after the settle.
+    settler.cancel()
+    setHoveredCluster(null)
+  }, [setHoveredPatient, settler, setHoveredCluster])
 
   useEffect(
     () => () => {
@@ -287,20 +388,18 @@ export function TrajectoriesChart(): React.JSX.Element {
        * trajectory, which is all a click used to do, is the less useful of the
        * two readings and the one the overlay already gives on hover.
        */
-      if (layers.medoids && clusterRun !== null) {
-        const cluster = clusterRun.clusterOfPatient[patient] ?? -1
-        if (cluster >= 0) {
-          toggleCluster(cluster)
-          return
-        }
+      const cluster = clusterAt(patient)
+      if (cluster !== null) {
+        toggleCluster(cluster)
+        return
       }
 
       togglePatient(patient)
     },
-    [pickPatient, togglePatient, layers.medoids, clusterRun, toggleCluster],
+    [pickPatient, togglePatient, clusterAt, toggleCluster],
   )
 
-  if (chartView === "multiples") {
+  if (mode === "multiples") {
     return (
       <div className="chart">
         {/*
@@ -323,6 +422,10 @@ export function TrajectoriesChart(): React.JSX.Element {
           segmentCount={bulk?.segmentCount ?? 0}
           lumpCount={lumps.length}
           medoidCount={medoidCount}
+          highlightCount={highlightCount}
+          rowStates={rowStates}
+          rowLabels={rowLabels}
+          palette={statePalette}
           buildMs={buildMs}
           frameRef={frame.ref}
           indexing={false}
@@ -337,7 +440,7 @@ export function TrajectoriesChart(): React.JSX.Element {
         ref={setContainer}
         className="chart__surface"
         onPointerMove={handlePointerMove}
-        onPointerLeave={() => setHoveredPatient(null)}
+        onPointerLeave={handlePointerLeave}
         onPointerDown={handleClick}
       >
         <canvas ref={setCanvas} className="chart__canvas" />
@@ -355,16 +458,16 @@ export function TrajectoriesChart(): React.JSX.Element {
         />
 
         {!byPosition && (
-        <StateBoxPlots
-          width={size.width}
-          height={size.height}
-          marginY={MARGIN_Y}
-          xDomain={xDomain}
-          rowOf={rowOf}
-          stats={stateStats}
-          population={populationStats}
-          palette={statePalette}
-        />
+          <StateBoxPlots
+            width={size.width}
+            height={size.height}
+            marginY={MARGIN_Y}
+            xDomain={xDomain}
+            rowOf={rowOf}
+            stats={stateStats}
+            population={populationStats}
+            palette={statePalette}
+          />
         )}
 
         {layers.lumps && (
@@ -398,6 +501,10 @@ export function TrajectoriesChart(): React.JSX.Element {
         segmentCount={bulk?.segmentCount ?? 0}
         lumpCount={lumps.length}
         medoidCount={medoidCount}
+        highlightCount={highlightCount}
+        rowStates={rowStates}
+        rowLabels={rowLabels}
+        palette={statePalette}
         buildMs={buildMs}
         frameRef={frame.ref}
         indexing={needsCpuIndex && index === null}
@@ -412,6 +519,10 @@ function ChartStats({
   segmentCount,
   lumpCount,
   medoidCount,
+  highlightCount,
+  rowStates,
+  rowLabels,
+  palette,
   buildMs,
   frameRef,
   indexing,
@@ -421,18 +532,24 @@ function ChartStats({
   segmentCount: number
   lumpCount: number
   medoidCount: number
+  highlightCount: number
+  rowStates: readonly number[]
+  rowLabels: readonly string[]
+  palette: Palette
   buildMs: number
   frameRef: React.RefObject<number>
   indexing: boolean
 }): React.JSX.Element {
   const rendererKind = useEras((s) => s.rendererKind)
   const layers = useEras((s) => s.layers)
+  const staleClusters = useEras(clusterStale)
   const selection = useEras((s) => s.selection)
   const cohortSize = useEras((s) => s.cohortSize)
   const selectionVersion = useEras((s) => s.selectionVersion)
   const clearClusters = useEras((s) => s.clearClusters)
-  const focused = useEras((s) => s.focusedTypology)
-  const focusTypology = useEras((s) => s.focusTypology)
+  const selectedTypologies = useEras((s) => s.selectedTypologies)
+  const clearTypologies = useEras((s) => s.clearTypologies)
+  const focused = focusedTypologyOf(selectedTypologies)
 
   // Sampled on a timer, not per frame, so the readout never drives the render loop.
   const [frameMs, setFrameMs] = useState(0)
@@ -456,6 +573,14 @@ function ChartStats({
         )}
         <b>{segmentCount.toLocaleString()}</b> segments
       </span>
+      {staleClusters && (
+        <span
+          className="chart__stats-stale"
+          title="States changed since the run — re-cluster from the States or Clusters panel"
+        >
+          clusters out of date
+        </span>
+      )}
       <span>
         geometry <b>{buildMs.toFixed(1)}ms</b>
       </span>
@@ -473,15 +598,19 @@ function ChartStats({
       <span>
         <b>{rowCount}</b> rows
       </span>
+      {highlightCount > 0 && (
+        <span className="chart__stats-hover">
+          <b>{highlightCount.toLocaleString()}</b> in this cluster
+        </span>
+      )}
       {focused !== null && (
-        <button
-          type="button"
-          className="chart__stats-isolated"
-          title="Back to the shared row order"
-          onClick={() => focusTypology(null)}
-        >
-          {focused} ✕
-        </button>
+        <TypologyChip
+          label={focused}
+          states={rowStates}
+          labels={rowLabels}
+          palette={palette}
+          onClear={clearTypologies}
+        />
       )}
       {isIsolated && (
         <button
@@ -496,6 +625,61 @@ function ChartStats({
       <span className="chart__stats-kind">{rendererKind}</span>
       {indexing && <span className="chart__stats-pending">indexing…</span>}
     </div>
+  )
+}
+
+/**
+ * Which typology is on screen, as its own colour run.
+ *
+ * A key is a long string and the stats line is one row of small text, so the
+ * chip carries the same dots the small-multiple card did — the thing you
+ * clicked and the thing that says where you are look alike. The text is a
+ * *reveal*: rest on it and it spells the sequence out, which is the rare case,
+ * while the common one costs a few dozen pixels. Rest rather than hover so
+ * crossing the stats line on the way somewhere else never makes it jump.
+ */
+function TypologyChip({
+  label,
+  states,
+  labels,
+  palette,
+  onClear,
+}: {
+  label: string
+  states: readonly number[]
+  labels: readonly string[]
+  palette: Palette
+  onClear: () => void
+}): React.JSX.Element {
+  const [revealed, setRevealed] = useState(false)
+  const timer = useRef(0)
+
+  const repeated = useMemo(() => repeatedSteps(states), [states])
+
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  return (
+    <button
+      type="button"
+      className="chart__stats-isolated chip"
+      data-revealed={revealed}
+      title={`${label} — back to the grid`}
+      onPointerEnter={() => {
+        window.clearTimeout(timer.current)
+        timer.current = window.setTimeout(() => setRevealed(true), REVEAL_MS)
+      }}
+      onPointerLeave={() => {
+        window.clearTimeout(timer.current)
+        setRevealed(false)
+      }}
+      onClick={onClear}
+    >
+      <StateDots states={states} labels={labels} repeated={repeated} palette={palette} />
+      {revealed && <span className="chip__text">{label}</span>}
+      <span className="chip__clear" aria-hidden="true">
+        ✕
+      </span>
+    </button>
   )
 }
 

@@ -95,7 +95,11 @@ describe("splicing a state out of the store", () => {
     ])
 
     // Two distinct paths to begin with.
-    expect(buildTypologies(store).map((t) => t.key).sort()).toEqual(["a-b-c", "a-c"])
+    expect(
+      buildTypologies(store)
+        .map((t) => t.key)
+        .sort(),
+    ).toEqual(["a-b-c", "a-c"])
 
     // With `b` gone they are the same path — which is the thing a filter could
     // never do, and the reason this has to reshape the store.
@@ -243,5 +247,76 @@ describe("splicing a state out of the store", () => {
     expect(Array.from(spliced.stateIds)).toEqual(Array.from(store.stateIds))
     expect(Array.from(spliced.durations)).toEqual(Array.from(store.durations))
     expect(spliced.extents).toEqual(store.extents)
+  })
+})
+
+/**
+ * Why a clustering run has to be marked stale after a splice.
+ *
+ * Results are filed under a typology key and name a medoid patient. Patient
+ * indices survive a splice by design, so nothing a stale run holds is ever an
+ * out-of-range read — which is exactly why the failure is silent. What breaks is
+ * the *meaning*: keys vanish, so joins quietly miss, and the keys that do
+ * survive describe a different, larger cohort than the one that was clustered.
+ */
+describe("what a splice does to results filed by typology", () => {
+  /** Two patients on a → b → c and one on a → c; removing `b` merges all three. */
+  const mixed: PatientRecord[] = [
+    {
+      id: "p1",
+      trajectory: ["a", "b", "c"],
+      switchEventAge: [20, 30, 40],
+      years: [2000, 2010, 2020],
+      diseaseDuration: 20,
+    },
+    {
+      id: "p2",
+      trajectory: ["a", "b", "c"],
+      switchEventAge: [21, 31, 41],
+      years: [2001, 2011, 2021],
+      diseaseDuration: 21,
+    },
+    {
+      id: "p3",
+      trajectory: ["a", "c"],
+      switchEventAge: [22, 42],
+      years: [2002, 2022],
+      diseaseDuration: 22,
+    },
+  ]
+
+  it("orphans the keys that held the removed state", () => {
+    const store = buildStore(mixed)
+    const before = buildTypologies(store)
+    const after = buildTypologies(spliceStates(store, maskOf(store, "b")))
+
+    const abc = before.find((typology) => typology.size === 2)
+    expect(abc).toBeDefined()
+
+    // A result filed under this key can never be found again: the panel shows
+    // no clusters, the chart draws no spines, and nothing reports an error.
+    expect(after.some((typology) => typology.key === (abc as { key: string }).key)).toBe(false)
+  })
+
+  it("leaves surviving keys describing a cohort they were not computed over", () => {
+    const store = buildStore(mixed)
+    const before = buildTypologies(store)
+    const after = buildTypologies(spliceStates(store, maskOf(store, "b")))
+
+    const ac = before.find((typology) => typology.size === 1)
+    expect(ac).toBeDefined()
+
+    const survivor = after.find((typology) => typology.key === (ac as { key: string }).key)
+    // Same key, three times the people. Clusters computed for one patient would
+    // still join — and would be wrong about all three.
+    expect(survivor?.size).toBe(3)
+  })
+
+  it("keeps every patient index a stale result names in range", () => {
+    const store = buildStore(mixed)
+    const spliced = spliceStates(store, maskOf(store, "b"))
+
+    // The invariant that makes staleness silent rather than fatal.
+    expect(spliced.patientCount).toBe(store.patientCount)
   })
 })

@@ -179,6 +179,11 @@ export class WebGLRenderer implements TrajectoryRenderer {
   private readonly overlayColorBuffer: WebGLBuffer
   private overlayVertexCount = 0
 
+  private readonly highlightVao: WebGLVertexArrayObject
+  private readonly highlightPositionBuffer: WebGLBuffer
+  private readonly highlightColorBuffer: WebGLBuffer
+  private highlightVertexCount = 0
+
   private vertexCount = 0
   private dpr = 1
 
@@ -223,14 +228,20 @@ export class WebGLRenderer implements TrajectoryRenderer {
     const colorBuffer = gl.createBuffer()
     const overlayPositionBuffer = gl.createBuffer()
     const overlayColorBuffer = gl.createBuffer()
+    const highlightVao = gl.createVertexArray()
+    const highlightPositionBuffer = gl.createBuffer()
+    const highlightColorBuffer = gl.createBuffer()
     if (
       vao === null ||
       pickVao === null ||
       overlayVao === null ||
+      highlightVao === null ||
       positionBuffer === null ||
       colorBuffer === null ||
       overlayPositionBuffer === null ||
-      overlayColorBuffer === null
+      overlayColorBuffer === null ||
+      highlightPositionBuffer === null ||
+      highlightColorBuffer === null
     ) {
       throw new RendererError("Could not allocate WebGL buffers")
     }
@@ -241,6 +252,9 @@ export class WebGLRenderer implements TrajectoryRenderer {
     this.colorBuffer = colorBuffer
     this.overlayPositionBuffer = overlayPositionBuffer
     this.overlayColorBuffer = overlayColorBuffer
+    this.highlightVao = highlightVao
+    this.highlightPositionBuffer = highlightPositionBuffer
+    this.highlightColorBuffer = highlightColorBuffer
 
     const positionLocation = gl.getAttribLocation(this.program, "aPosition")
     const colorLocation = gl.getAttribLocation(this.program, "aColor")
@@ -259,6 +273,14 @@ export class WebGLRenderer implements TrajectoryRenderer {
     gl.enableVertexAttribArray(positionLocation)
     gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
     gl.bindBuffer(gl.ARRAY_BUFFER, overlayColorBuffer)
+    gl.enableVertexAttribArray(colorLocation)
+    gl.vertexAttribPointer(colorLocation, 4, gl.UNSIGNED_BYTE, true, 0, 0)
+
+    gl.bindVertexArray(highlightVao)
+    gl.bindBuffer(gl.ARRAY_BUFFER, highlightPositionBuffer)
+    gl.enableVertexAttribArray(positionLocation)
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
+    gl.bindBuffer(gl.ARRAY_BUFFER, highlightColorBuffer)
     gl.enableVertexAttribArray(colorLocation)
     gl.vertexAttribPointer(colorLocation, 4, gl.UNSIGNED_BYTE, true, 0, 0)
 
@@ -337,6 +359,14 @@ export class WebGLRenderer implements TrajectoryRenderer {
     )
   }
 
+  setHighlightGeometry(geometry: Geometry | null): void {
+    this.highlightVertexCount = this.upload(
+      geometry,
+      this.highlightPositionBuffer,
+      this.highlightColorBuffer,
+    )
+  }
+
   private upload(
     geometry: Geometry | null,
     positions: WebGLBuffer,
@@ -376,6 +406,19 @@ export class WebGLRenderer implements TrajectoryRenderer {
       gl.uniform3f(uniforms.background, view.background[0], view.background[1], view.background[2])
       gl.uniform2f(uniforms.offset, 0, 0)
       gl.drawArrays(gl.LINES, 0, this.vertexCount)
+    }
+
+    /*
+     * Highlight layer: the hovered cluster's members, at their own alpha over a
+     * bulk the same frame has flattened. One pass at hairline width — this is
+     * the field, not a summary, so it should look like the field it came out of.
+     */
+    if (this.highlightVertexCount > 0 && view.highlightOpacity > 0) {
+      gl.bindVertexArray(this.highlightVao)
+      gl.uniform1f(uniforms.opacity, view.highlightOpacity)
+      gl.uniform1f(uniforms.fade, 0)
+      gl.uniform2f(uniforms.offset, 0, 0)
+      gl.drawArrays(gl.LINES, 0, this.highlightVertexCount)
     }
 
     // Spine layer: repeated at sub-pixel offsets to reach the requested width.
@@ -514,9 +557,12 @@ export class WebGLRenderer implements TrajectoryRenderer {
     gl.deleteBuffer(this.colorBuffer)
     gl.deleteBuffer(this.overlayPositionBuffer)
     gl.deleteBuffer(this.overlayColorBuffer)
+    gl.deleteBuffer(this.highlightPositionBuffer)
+    gl.deleteBuffer(this.highlightColorBuffer)
     gl.deleteVertexArray(this.vao)
     gl.deleteVertexArray(this.pickVao)
     gl.deleteVertexArray(this.overlayVao)
+    gl.deleteVertexArray(this.highlightVao)
     gl.deleteProgram(this.program)
     gl.deleteProgram(this.pickProgram)
     if (this.pickTexture !== null) gl.deleteTexture(this.pickTexture)

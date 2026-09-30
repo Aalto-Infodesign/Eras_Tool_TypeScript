@@ -1,7 +1,8 @@
 import { CLUSTERING_ENABLED } from "../app/features.ts"
-import { useEras, type ChartLayer } from "../app/store.ts"
+import { chartModeOf, useEras, type ChartLayer } from "../app/store.ts"
 import type { RendererKind } from "../core/render/Renderer.ts"
 import type { XAxis } from "../core/render/geometry.ts"
+import { useClusterRun } from "./useClusterRun.ts"
 
 const AXES: readonly { value: XAxis; label: string }[] = [
   { value: "age", label: "Age" },
@@ -31,15 +32,21 @@ export function ControlBar(): React.JSX.Element {
 
   const layers = useEras((s) => s.layers)
   const toggleLayer = useEras((s) => s.toggleLayer)
-  const chartView = useEras((s) => s.chartView)
-  const setChartView = useEras((s) => s.setChartView)
-  const clusterRun = useEras((s) => s.clusterRun)
+  const clusterRun = useClusterRun()
   const clusterStatus = useEras((s) => s.clusterStatus)
+  const selectedTypologies = useEras((s) => s.selectedTypologies)
 
   const hasClusters = clusterRun !== null && clusterRun.clusters.length > 0
+  /*
+   * The grid draws every panel's own cohort whatever the Lines toggle says —
+   * those hairlines *are* the panel, the thing whose slope is being compared,
+   * not a layer over something else. So the slider still governs them there,
+   * where in the single chart it belongs to a layer you can switch off.
+   */
+  const isGrid = chartModeOf(selectedTypologies) === "multiples"
   // The hairlines step back under anything drawn over them, and the slider
   // changes meaning with them. See `ViewState.bulkFade`.
-  const isBackdrop = layers.lines && (layers.medoids || layers.lumps)
+  const isBackdrop = (layers.lines || isGrid) && (layers.medoids || layers.lumps)
 
   return (
     <div className="controls">
@@ -102,43 +109,15 @@ export function ControlBar(): React.JSX.Element {
       </fieldset>
 
       {/*
-       * One frame or one per typology. A test: the grid drops the layer
-       * toggles, the medoid overlay and hover, and keeps only the hairlines —
-       * enough to answer whether comparing slopes side by side is worth losing
-       * the shared frame for.
-       */}
-      <fieldset className="controls__group">
-        <legend>View</legend>
-        {(
-          [
-            ["overlay", "Overlay"],
-            ["multiples", "S.M."],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className="button"
-            data-selected={chartView === value}
-            title={
-              value === "multiples"
-                ? "One panel per selected typology, each ordered along its own sequence"
-                : "Every typology in one frame, on the shared row order"
-            }
-            onClick={() => setChartView(value)}
-          >
-            {label}
-          </button>
-        ))}
-      </fieldset>
-
-      {/*
        * The slider belongs to the hairlines and is disabled without them — lumps
        * carry their own fill and a thousand medoid spines have nothing to
        * overplot. Its *meaning* changes when they become a backdrop: the same
        * direction, but mixing into the background instead of stacking alpha.
        */}
-      <fieldset className="controls__group controls__group--wide" disabled={!layers.lines}>
+      <fieldset
+        className="controls__group controls__group--wide"
+        disabled={!layers.lines && !isGrid}
+      >
         <legend
           title={isBackdrop ? "Mixed into the background, so crossings do not stack" : undefined}
         >
@@ -152,7 +131,7 @@ export function ControlBar(): React.JSX.Element {
           value={opacity}
           onChange={(event) => setOpacity(Number(event.target.value))}
         />
-        <span className="controls__value">{layers.lines ? opacity.toFixed(2) : "—"}</span>
+        <span className="controls__value">{layers.lines || isGrid ? opacity.toFixed(2) : "—"}</span>
       </fieldset>
     </div>
   )

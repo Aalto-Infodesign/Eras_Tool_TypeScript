@@ -65,18 +65,68 @@ export type ChartLayer = "lines" | "lumps" | "medoids"
 export type LayerToggles = Readonly<Record<ChartLayer, boolean>>
 
 /**
- * One chart, or one chart per selected typology.
+ * How many typologies are selected decides how the chart reads, so nothing
+ * stores it:
  *
- * Overlaying several typologies in a single frame is the honest default — they
- * share a cohort and a time axis — but past a handful of them the picture stops
- * separating: paths cross on shared rows and the slope of any one sequence, the
- * thing you are actually comparing, is lost in the others. Small multiples trade
- * the shared frame for legibility, and each panel then earns its *own* row
- * ordering, which is the point: with every typology laid out along its own
- * sequence, a shallow path and a steep one differ visibly rather than by
- * happening to use different rows of one global order.
+ * - **exactly one** — that typology alone, on *its own steps* (a rule per visit,
+ *   so a revisited state does not fold back).
+ * - **anything else** — one panel per typology, as small multiples. With none
+ *   selected that is the biggest few, which is the view the app opens on.
+ *
+ * Overlaying several typologies in a single frame used to be the middle case
+ * and was the weakest reading in the app: they shared rows, so the paths
+ * crossed and the slope of any one of them — the thing being compared — was
+ * lost in the others. The grid answers that question properly, which leaves the
+ * single-typology chart to do the one thing it is good at.
+ *
+ * Derived rather than stored because a stored copy is a second source of truth
+ * for something the selection already says, and the two drift.
  */
-export type ChartView = "overlay" | "multiples"
+export function chartModeOf(selected: readonly string[]): "overlay" | "multiples" {
+  return selected.length === 1 ? "overlay" : "multiples"
+}
+
+/** The typology the chart is drawn along, when exactly one is selected. */
+export function focusedTypologyOf(selected: readonly string[]): string | null {
+  return selected.length === 1 ? (selected[0] as string) : null
+}
+
+/** Set equality over state ids, which arrive in click order, not sorted. */
+function sameStates(a: readonly number[] | null, b: readonly number[]): boolean {
+  const left = a ?? []
+  if (left.length !== b.length) return false
+  const seen = new Set(left)
+  return b.every((state) => seen.has(state))
+}
+
+/** The slice of the store the two predicates below read. */
+interface ClusterShape {
+  clusterRun: ClusterRun | null
+  clusterRemovedStates: readonly number[] | null
+  filters: FilterState
+}
+
+/**
+ * Whether the clustering on hand still describes the data on screen.
+ *
+ * See `clusterRemovedStates`. Derived, never stored: a flag set by whoever
+ * remembers to set it is a second source of truth, and this one would go wrong
+ * silently — a stale run does not fail, it quietly matches nothing.
+ */
+export const clusterStale = (state: ClusterShape): boolean =>
+  state.clusterRun !== null && !sameStates(state.clusterRemovedStates, state.filters.removedStates)
+
+/**
+ * The run to draw with and join against — `null` for as long as it is stale.
+ *
+ * Everything that *uses* results goes through here rather than reading
+ * `clusterRun` directly, so a stale run is invisible in exactly one place
+ * instead of being something each of five call sites has to remember. The one
+ * place that reads the raw field is the control offering to re-run it, which has
+ * to know a run exists in order to say it is out of date.
+ */
+export const clusterRunOf = (state: ClusterShape): ClusterRun | null =>
+  clusterStale(state) ? null : state.clusterRun
 
 interface ErasState {
   status: LoadStatus
@@ -150,6 +200,16 @@ interface ErasState {
   opacity: number
   hoveredPatient: number | null
   selectedPatients: readonly number[]
+  /**
+   * The cluster under the cursor, as a global index — what the chart highlights.
+   *
+   * Separate from `hoveredPatient` because it means something different and
+   * costs something different. A hovered patient is one trajectory traced by an
+   * SVG overlay, so it can follow the pointer per frame. A hovered *cluster*
+   * rebuilds a geometry buffer of all its members, so the chart settles the
+   * pointer before setting it — see `HOVER_SETTLE_MS`.
+   */
+  hoveredCluster: number | null
 
   clusterStatus: ClusterStatus
   clusterError: string | null
@@ -157,24 +217,31 @@ interface ErasState {
   clusterRun: ClusterRun | null
   /** Bumped whenever streamed results mutate `clusterRun` in place. */
   clusterVersion: number
+  /**
+   * The removed-state set `clusterRun` was computed over.
+   *
+   * Clustering is not a view of the data, it is a derivation of it. The distance
+   * matrices are built from the spliced store, and both halves of a result — the
+   * `typologyKey` it is filed under and the medoid patient it names — only mean
+   * something against the sequences that produced them. Splice a state out and
+   * the typologies regroup under new keys: every `byTypology` join misses, every
+   * medoid stands for a cohort that no longer exists, and the scoped lookups in
+   * the render path match nothing. None of that throws. The spines simply stop
+   * appearing, which reads as a rendering bug rather than as stale results.
+   *
+   * So the run carries the shape it was computed for and `clusterStale` compares
+   * it with the shape on screen. Held as the removal set rather than as the
+   * store's identity because it is the exact predicate — the same set splices to
+   * the same store — so putting a state back makes the run valid again instead of
+   * merely making it re-runnable.
+   */
+  clusterRemovedStates: readonly number[] | null
   clusterPreviews: ReadonlyMap<string, Uint32Array>
   clusterParams: ClusterParams
   selectedClusters: readonly number[]
 
   colorBy: ColorBy
   layers: LayerToggles
-  chartView: ChartView
-  /**
-   * One typology, drawn along its own sequence rather than the global rows.
-   *
-   * Set by clicking a small multiple: the panel's reading — a ruler per *step*,
-   * so a revisited state gets a second rule instead of the line doubling back —
-   * carries over to the full-size chart. It is its own field rather than
-   * "exactly one typology is selected" because it is a different *projection*,
-   * not a narrower selection, and inferring it would make a two-typology
-   * selection silently change what a row means.
-   */
-  focusedTypology: string | null
   showMedoids: boolean
 
   loadFile(file: File): Promise<void>
@@ -184,10 +251,11 @@ interface ErasState {
   toggleInverted(key: NumericFilter): void
   toggleTypology(key: string): void
   clearTypologies(): void
+  selectTypologies(keys: readonly string[]): void
+  /** Opens one typology full size with one of its clusters already isolated. */
+  focusCluster(typologyKey: string, cluster: number): void
   /** Walks the path explorer to `prefix`; `[]` steps back to the whole cohort. */
   selectPath(prefix: readonly number[]): void
-  setStateOrder(order: readonly number[]): void
-  moveState(state: number, delta: number): void
   toggleRemovedState(state: number): void
   resetStates(): void
   setAxis(axis: XAxis): void
@@ -197,6 +265,7 @@ interface ErasState {
   setRendererKind(kind: RendererKind): void
   setOpacity(opacity: number): void
   setHoveredPatient(patient: number | null): void
+  setHoveredCluster(cluster: number | null): void
   togglePatient(patient: number): void
 
   startClustering(params?: ClusterParams): void
@@ -207,9 +276,6 @@ interface ErasState {
   clearClusters(): void
   setColorBy(colorBy: ColorBy): void
   toggleLayer(layer: ChartLayer): void
-  setChartView(view: ChartView): void
-  /** Draws one typology along its own steps, in the full-size chart. */
-  focusTypology(key: string | null): void
   setShowMedoids(show: boolean): void
 
   reset(): void
@@ -259,20 +325,20 @@ const initial = {
   opacity: 0.35,
   hoveredPatient: null,
   selectedPatients: [],
+  hoveredCluster: null,
 
   clusterStatus: "idle" as ClusterStatus,
   clusterError: null,
   clusterProgress: { done: 0, total: 0 },
   clusterRun: null,
   clusterVersion: 0,
+  clusterRemovedStates: null,
   clusterPreviews: new Map<string, Uint32Array>(),
   clusterParams: CLUSTER_DEFAULTS,
   selectedClusters: [],
 
   colorBy: "state" as ColorBy,
   layers: { lines: false, lumps: false, medoids: true } as LayerToggles,
-  chartView: "overlay" as ChartView,
-  focusedTypology: null,
   showMedoids: true,
 }
 
@@ -330,11 +396,11 @@ export const useEras = create<ErasState>()((set, get) => {
    * ordering, and rebuilding it here would yank the rows around on every
    * removal. The original had exactly that bug.
    */
-  const syncStates = (nextOrder?: readonly number[], nextRemoved?: readonly number[]): void => {
+  const syncStates = (nextRemoved?: readonly number[]): void => {
     const { baseStore, stateOrder, filters, selectedTypologies } = get()
     if (baseStore === null) return
 
-    const order = nextOrder ?? stateOrder
+    const order = stateOrder
     const removedStates = nextRemoved ?? filters.removedStates
     /*
      * A reorder leaves both the state ids and the typology keys alone, so a
@@ -346,6 +412,29 @@ export const useEras = create<ErasState>()((set, get) => {
       removedStates.length !== filters.removedStates.length ||
       removedStates.some((state, i) => filters.removedStates[i] !== state)
     const removedSet = new Set(removedStates)
+
+    /*
+     * Whether this reshape puts the clustering out of date — see
+     * `clusterRemovedStates`. Asked through the same predicate the UI reads, so
+     * there is one definition of "stale" rather than one here and one there.
+     * Note it is not simply `reshaped`: restoring exactly what was removed
+     * splices back to the same store, which makes an existing run valid again.
+     */
+    const goesStale = clusterStale({
+      clusterRun: get().clusterRun,
+      clusterRemovedStates: get().clusterRemovedStates,
+      filters: { ...filters, removedStates },
+    })
+
+    /*
+     * A run still streaming is deliberately left alone. Its results are
+     * consistent with the matrices it was given — those were transferred and
+     * describe the old store — so letting it finish leaves a *complete* run to
+     * come back to if the state is restored, and re-clustering supersedes it in
+     * the worker anyway. Cancelling here would trade that for a partial run
+     * indistinguishable from a whole one.
+     */
+    const layers = get().layers
 
     const clock = new Stopwatch()
 
@@ -385,8 +474,22 @@ export const useEras = create<ErasState>()((set, get) => {
       // A splice merges typologies, so a selected key can simply cease to exist.
       selectedTypologies: reshaped ? [] : selectedTypologies.filter((key) => keys.has(key)),
       pathPrefix: reshaped ? [] : get().pathPrefix,
-      // A splice merges sequences, so the focused one may no longer exist.
-      focusedTypology: reshaped ? null : get().focusedTypology,
+      // Both index a run that no longer describes anything on screen: a global
+      // cluster index means nothing once the typologies behind it have merged.
+      selectedClusters: reshaped ? [] : get().selectedClusters,
+      hoveredCluster: reshaped ? null : get().hoveredCluster,
+      clusterPreviews: reshaped ? new Map() : get().clusterPreviews,
+      /*
+       * Medoids alone, over a run that just went stale, is an empty chart — the
+       * same failure `toggleLayer` refuses to let anyone click their way into.
+       * The hairlines are drawable whatever the clustering says, so they take
+       * over until the run is redone. Removing a state should change the shape
+       * of the picture, not blank it.
+       */
+      layers:
+        goesStale && layers.medoids && !layers.lines && !layers.lumps
+          ? { ...layers, lines: true }
+          : layers,
       stateOrder: order,
       visibleStates: order.filter((state) => !removedSet.has(state)),
       reshapeTimings: removedStates.length > 0 ? clock.timings : [],
@@ -442,13 +545,14 @@ export const useEras = create<ErasState>()((set, get) => {
       filters: emptyFilters,
       selectedTypologies: [],
       pathPrefix: [],
-      focusedTypology: null,
       selectedPatients: [],
       hoveredPatient: null,
       xDomainOverride: null,
 
       clusterRun: null,
+      clusterRemovedStates: null,
       clusterPreviews: new Map(),
+      hoveredCluster: null,
       clusterProgress: { done: 0, total: 0 },
       clusterError: null,
       selectedClusters: [],
@@ -475,7 +579,10 @@ export const useEras = create<ErasState>()((set, get) => {
   }
 
   const fail = (error: unknown): void => {
-    set({ status: "error", error: error instanceof Error ? error.message : String(error) })
+    set({
+      status: "error",
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 
   return {
@@ -511,7 +618,11 @@ export const useEras = create<ErasState>()((set, get) => {
     resetFilter(key) {
       const filters = get().filters
       set({
-        filters: { ...filters, [key]: null, inverted: { ...filters.inverted, [key]: false } },
+        filters: {
+          ...filters,
+          [key]: null,
+          inverted: { ...filters.inverted, [key]: false },
+        },
       })
       recompute()
     },
@@ -521,7 +632,10 @@ export const useEras = create<ErasState>()((set, get) => {
       set({
         filters: {
           ...filters,
-          inverted: { ...filters.inverted, [key]: filters.inverted[key] !== true },
+          inverted: {
+            ...filters.inverted,
+            [key]: filters.inverted[key] !== true,
+          },
         },
       })
       recompute()
@@ -535,22 +649,56 @@ export const useEras = create<ErasState>()((set, get) => {
           : [...current, key],
         // Picking a card by hand makes the selection something no prefix
         // describes, and a breadcrumb that no longer matches the selection is
-        // worse than no breadcrumb. The same goes for the focused projection.
+        // worse than no breadcrumb.
         pathPrefix: [],
-        focusedTypology: null,
+        // A cluster belongs to one typology's ladder; changing which typology
+        // is drawn abandons it rather than plotting it against another.
+        selectedClusters: [],
+        hoveredCluster: null,
+      })
+      recompute()
+    },
+
+    /** Replaces the selection outright — what opening one small multiple does. */
+    selectTypologies(keys) {
+      set({
+        selectedTypologies: [...keys],
+        pathPrefix: [],
+        selectedClusters: [],
+        hoveredCluster: null,
+      })
+      recompute()
+    },
+
+    /*
+     * The grid's drill-down: clicking a spine in a small multiple opens that
+     * typology and isolates the cluster it represents.
+     *
+     * One action rather than two calls, because the order is a trap —
+     * `selectTypologies` clears the cluster selection, so isolating first and
+     * focusing second would silently undo half of it.
+     */
+    focusCluster(typologyKey, cluster) {
+      set({
+        selectedTypologies: [typologyKey],
+        pathPrefix: [],
+        selectedClusters: [cluster],
+        hoveredCluster: null,
       })
       recompute()
     },
 
     clearTypologies() {
-      set({ selectedTypologies: [], pathPrefix: [], focusedTypology: null })
+      // Same rule as `toggleTypology`: a cluster belongs to one typology's
+      // ladder, so leaving that ladder abandons it. Without this, going back to
+      // the grid left an isolation the grid does not honour and cannot show.
+      set({ selectedTypologies: [], pathPrefix: [], selectedClusters: [], hoveredCluster: null })
       recompute()
     },
 
     selectPath(prefix) {
       const { typologies } = get()
       set({
-        focusedTypology: null,
         pathPrefix: prefix,
         selectedTypologies:
           prefix.length === 0
@@ -562,37 +710,13 @@ export const useEras = create<ErasState>()((set, get) => {
       recompute()
     },
 
-    setStateOrder(order) {
-      syncStates(order)
-    },
-
-    /**
-     * Nudges one state up or down the list — the keyboard-reachable equivalent
-     * of dragging it, and what the original's state labels offered as arrows.
-     */
-    moveState(state, delta) {
-      const order = get().stateOrder.slice()
-      const from = order.indexOf(state)
-      if (from === -1) return
-
-      const to = Math.max(0, Math.min(order.length - 1, from + delta))
-      if (to === from) return
-
-      order.splice(from, 1)
-      order.splice(to, 0, state)
-      syncStates(order)
-    },
-
     toggleRemovedState(state) {
       const current = get().filters.removedStates
-      syncStates(
-        undefined,
-        current.includes(state) ? current.filter((s) => s !== state) : [...current, state],
-      )
+      syncStates(current.includes(state) ? current.filter((s) => s !== state) : [...current, state])
     },
 
     resetStates() {
-      syncStates(get().baseStateOrder, [])
+      syncStates([])
     },
 
     setAxis(axis) {
@@ -622,6 +746,12 @@ export const useEras = create<ErasState>()((set, get) => {
       set({ hoveredPatient })
     },
 
+    setHoveredCluster(hoveredCluster) {
+      // Compared before setting: the pointer settles on the same spine many
+      // times over, and each redundant set would rebuild the member geometry.
+      if (get().hoveredCluster !== hoveredCluster) set({ hoveredCluster })
+    },
+
     togglePatient(patient) {
       const current = get().selectedPatients
       set({
@@ -641,7 +771,16 @@ export const useEras = create<ErasState>()((set, get) => {
       const matrices = buildDurationMatrices(store, typologies)
 
       if (matrices.length === 0) {
-        set({ clusterStatus: "done", clusterProgress: { done: 0, total: 0 } })
+        // Nothing clusterable in the reshaped data. Anything left over describes
+        // the old shape, so it goes rather than sitting there looking current.
+        set({
+          clusterStatus: "done",
+          clusterProgress: { done: 0, total: 0 },
+          clusterRun: null,
+          clusterRemovedStates: null,
+          clusterPreviews: new Map(),
+          selectedClusters: [],
+        })
         return
       }
 
@@ -680,8 +819,12 @@ export const useEras = create<ErasState>()((set, get) => {
         clusterError: null,
         clusterProgress: { done: 0, total: matrices.length },
         clusterRun: builder.snapshot(),
+        // Stamped here, not on completion: the run streams, and every partial
+        // snapshot of it is already valid for this shape of the data.
+        clusterRemovedStates: get().filters.removedStates,
         clusterPreviews: new Map(),
         selectedClusters: [],
+        hoveredCluster: null,
       })
 
       clusterClient.run(matrices, effective, {
@@ -716,12 +859,16 @@ export const useEras = create<ErasState>()((set, get) => {
 
     pauseClustering() {
       clusterClient.pause()
-      set({ clusterStatus: get().clusterStatus === "running" ? "paused" : get().clusterStatus })
+      set({
+        clusterStatus: get().clusterStatus === "running" ? "paused" : get().clusterStatus,
+      })
     },
 
     resumeClustering() {
       clusterClient.resume()
-      set({ clusterStatus: get().clusterStatus === "paused" ? "running" : get().clusterStatus })
+      set({
+        clusterStatus: get().clusterStatus === "paused" ? "running" : get().clusterStatus,
+      })
     },
 
     cancelClustering() {
@@ -745,30 +892,6 @@ export const useEras = create<ErasState>()((set, get) => {
     setColorBy(colorBy) {
       set({ colorBy })
     },
-    setChartView(chartView) {
-      // The per-step projection belongs to a single typology; leaving the grid
-      // for the overlay without one would put the chart on rows that no longer
-      // mean anything.
-      set({ chartView, focusedTypology: chartView === "multiples" ? null : get().focusedTypology })
-    },
-
-    focusTypology(key) {
-      if (key === null) {
-        set({ focusedTypology: null })
-        recompute()
-        return
-      }
-      set({
-        focusedTypology: key,
-        chartView: "overlay",
-        selectedTypologies: [key],
-        pathPrefix: [],
-        // A cluster from another typology would be drawn against a ladder it
-        // never walked; focusing starts the projection clean.
-        selectedClusters: [],
-      })
-      recompute()
-    },
     toggleLayer(layer) {
       const layers = get().layers
       const next = layers[layer] !== true
@@ -776,7 +899,8 @@ export const useEras = create<ErasState>()((set, get) => {
       // Medoids need a run behind them. Nothing else in the app can put the
       // chart into a layer whose data has gone, so the guard lives here rather
       // than as a fallback in the render path.
-      if (next && layer === "medoids" && (!CLUSTERING_ENABLED || get().clusterRun === null)) return
+      if (next && layer === "medoids" && (!CLUSTERING_ENABLED || clusterRunOf(get()) === null))
+        return
 
       // Turning the last one off leaves a chart with rules and box plots and no
       // data in it, which reads as a failure rather than as a choice.

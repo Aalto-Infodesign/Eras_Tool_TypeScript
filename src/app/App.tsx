@@ -30,8 +30,8 @@ export function App(): React.JSX.Element {
             <StatesPanel />
             <FiltersPanel />
             {CLUSTERING_ENABLED && <ClusterTable />}
-            <TypologyList />
             <PathExplorer />
+            <TypologyList />
           </aside>
 
           <section className="app__chart">

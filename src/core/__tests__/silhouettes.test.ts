@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { buildStore } from "../model/build.ts"
 import {
   filteredSizes,
-  orderFromTypology,
+  repeatedSteps,
   sequenceLabels,
   typologyIds,
   uniqueStates,
@@ -22,27 +22,6 @@ const patient = (id: string, trajectory: readonly string[]): PatientRecord => ({
 describe("uniqueStates", () => {
   it("keeps first appearance order and drops repeats", () => {
     expect(uniqueStates(Uint16Array.of(2, 0, 2, 1, 0))).toEqual([2, 0, 1])
-  })
-})
-
-describe("orderFromTypology", () => {
-  it("leads with the typology's states and keeps the rest in place", () => {
-    expect(orderFromTypology(Uint16Array.of(3, 1), [0, 1, 2, 3])).toEqual([3, 1, 0, 2])
-  })
-
-  it("keeps a revisited state rather than cancelling it out", () => {
-    // The original used lodash `xor` for the leftovers, a symmetric difference:
-    // a state visited twice was in both lists, so it landed in neither and its
-    // row disappeared from the chart. Every state must survive the reorder.
-    const next = orderFromTypology(Uint16Array.of(0, 1, 0), [0, 1, 2])
-    expect([...next].sort()).toEqual([0, 1, 2])
-    expect(next).toEqual([0, 1, 2])
-  })
-
-  it("ignores states the current ordering no longer has", () => {
-    // A typology built before a splice can still name a state that has since
-    // been removed; giving it a row would open an empty band.
-    expect(orderFromTypology(Uint16Array.of(9, 1), [0, 1, 2])).toEqual([1, 0, 2])
   })
 })
 
@@ -104,5 +83,28 @@ describe("sequenceLabels", () => {
       "b (2)",
       "a (3)",
     ])
+  })
+})
+
+describe("repeatedSteps", () => {
+  const names = ["a", "b", "c"]
+
+  it("marks every visit to a state the sequence returns to", () => {
+    expect(repeatedSteps(Uint16Array.of(0, 1, 0, 2))).toEqual([true, false, true, false])
+  })
+
+  it("marks nothing in a sequence that never comes back", () => {
+    expect(repeatedSteps(Uint16Array.of(0, 1, 2))).toEqual([false, false, false])
+  })
+
+  /*
+   * The two halves have to agree: the swatch lifts on exactly the steps whose
+   * label carries an ordinal, or a raised dot points at a name with no visit
+   * number on it and the notation stops meaning anything.
+   */
+  it("agrees with sequenceLabels about which steps repeat", () => {
+    const states = Uint16Array.of(2, 0, 1, 0, 2, 2)
+    const labels = sequenceLabels(states, names)
+    expect(repeatedSteps(states)).toEqual(labels.map((label) => label.includes("(")))
   })
 })

@@ -1,7 +1,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react"
 
 import { useEras } from "../app/store.ts"
+import { ClusterRunControl } from "./ClusterStale.tsx"
 import { Panel } from "./Panel.tsx"
+import { useClusterRun } from "./useClusterRun.ts"
 import {
   clusterMemberIds,
   clusterSummaryTsv,
@@ -28,7 +30,7 @@ const OVERSCAN = 8
 export function ClusterTable(): React.JSX.Element | null {
   const store = useEras((s) => s.store)
   const typologies = useEras((s) => s.typologies)
-  const clusterRun = useEras((s) => s.clusterRun)
+  const clusterRun = useClusterRun()
   const clusterVersion = useEras((s) => s.clusterVersion)
   const status = useEras((s) => s.clusterStatus)
   const selectedClusters = useEras((s) => s.selectedClusters)
@@ -56,7 +58,8 @@ export function ClusterTable(): React.JSX.Element | null {
         return list.sort((a, b) => (b.result?.k ?? -1) - (a.result?.k ?? -1))
       case "score":
         return list.sort(
-          (a, b) => (b.result?.meanSilhouette ?? -Infinity) - (a.result?.meanSilhouette ?? -Infinity),
+          (a, b) =>
+            (b.result?.meanSilhouette ?? -Infinity) - (a.result?.meanSilhouette ?? -Infinity),
         )
       case "size":
         return list.sort((a, b) => b.typology.size - a.typology.size)
@@ -94,7 +97,9 @@ export function ClusterTable(): React.JSX.Element | null {
 
     // A third of the way down rather than at the very top, so the rows around
     // it stay visible and the jump reads as a scroll rather than a reset.
-    bodyRef.current?.scrollTo({ top: Math.max(0, position * ROW_HEIGHT - viewportHeight / 3) })
+    bodyRef.current?.scrollTo({
+      top: Math.max(0, position * ROW_HEIGHT - viewportHeight / 3),
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastSelected])
 
@@ -120,11 +125,11 @@ export function ClusterTable(): React.JSX.Element | null {
         </>
       }
     >
-
       <div className="clusterbar">
         <div className="clusterbar__fill" style={{ width: `${percent}%` }} />
       </div>
       {error !== null && <p className="loader__error">{error}</p>}
+      <ClusterRunControl />
 
       <div className="table__controls">
         {(["size", "clusters", "score", "name"] as const).map((key) => (
@@ -286,7 +291,7 @@ const TypologyRow = memo(function TypologyRow({
 
 function ClusterDetail({ typologyKey }: { typologyKey: string }): React.JSX.Element | null {
   const store = useEras((s) => s.store)
-  const clusterRun = useEras((s) => s.clusterRun)
+  const clusterRun = useClusterRun()
   const selectedClusters = useEras((s) => s.selectedClusters)
   const toggleCluster = useEras((s) => s.toggleCluster)
 

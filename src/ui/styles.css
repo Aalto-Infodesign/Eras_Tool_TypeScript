@@ -1075,7 +1075,7 @@ body {
 
 .state {
   display: grid;
-  grid-template-columns: 10px 16px 1fr auto;
+  grid-template-columns: 10px 5px 1fr 0.5fr auto;
   gap: 6px;
   align-items: center;
   min-width: 0;
@@ -1083,15 +1083,15 @@ body {
   border: 1px solid transparent;
   border-radius: 4px;
   background: var(--surface-2);
-  cursor: grab;
+  /* cursor: grab; */
 }
 .state:hover {
   border-color: var(--line);
 }
-.state[data-dragging="true"] {
+/* .state[data-dragging="true"] {
   opacity: 0.4;
   cursor: grabbing;
-}
+} */
 /* The drop marker sits on the edge the dragged row will take. */
 .state[data-dragover="true"] {
   border-top-color: var(--accent);
@@ -1344,6 +1344,13 @@ body {
   /* Pointer events belong to the panel buttons layered over it. */
   pointer-events: none;
 }
+/* The one layer that recedes while a cluster is highlighted, and it recedes as
+   a composited element rather than as a repaint. See `DIM_ELEMENT_OPACITY`. */
+.multiples__canvas--lines {
+  /* Paired with `FADE_MS`, which fades the members drawn over it — one gesture,
+     two mechanisms, so they have to stay roughly in step. */
+  transition: opacity 200ms ease-out;
+}
 .multiples__panel {
   position: absolute;
   display: block;
@@ -1384,22 +1391,81 @@ body {
 .multiples__steps {
   margin-left: 4px;
 }
-/* The sequence as a colour run — one swatch per step, repeats included. */
-.multiples__swatch {
-  width: 6px;
-  height: 6px;
-  border-radius: 1px;
-  flex: 0 0 auto;
-}
 .multiples__size {
   margin-left: auto;
   font-family: ui-monospace, monospace;
   color: var(--text);
 }
+/* Says the panel is a sample of its cohort rather than all of it — the count
+   beside it is still the real one. */
+.multiples__size[data-sampled="true"] {
+  border-bottom: 1px dotted var(--muted);
+}
+.multiples__panel[data-spine="true"] {
+  cursor: crosshair;
+}
 .multiples__more {
   margin: 0;
   color: var(--muted);
   font-size: 11px;
+}
+
+/* ---------- the sequence as a colour run ---------- */
+
+/* One dot per step, repeats included — a typology's shape at a glance, shared
+   by the small-multiple cards and the chip that says which one is open. */
+.dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+.dots__swatch {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  flex: 0 0 auto;
+}
+/* Lifted, so a sequence that comes back reads as a jagged run rather than as a
+   flat one you have to count your way along. */
+.dots__swatch[data-repeat="true"] {
+  transform: translateY(-3px);
+}
+
+/* The chip spells itself out only when the pointer rests on it, so the common
+   case costs a few dozen pixels of the stats line instead of a whole key. */
+.chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Out of flow, on purpose. Inline, the key is long enough to push every stat
+   beside it sideways, so resting on the chip shoved the readout you were
+   looking at off its own line. */
+.chip__text {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  max-width: 60ch;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: 0 4px 14px hsl(230 30% 4% / 0.5);
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.chip__clear {
+  opacity: 0.7;
+}
+.chart__stats-hover {
+  color: var(--accent);
 }
 
 .chart__stats-isolated {
@@ -1423,6 +1489,41 @@ body {
 .chart__stats-pending {
   color: var(--accent);
   opacity: 0.7;
+}
+.chart__stats-stale {
+  color: var(--danger);
+}
+
+/* ---------- stale clustering ---------- */
+
+/*
+ * A prompt, not a warning: nothing is wrong, the results simply describe an
+ * earlier shape of the data and recomputing them is the user's call. It sits in
+ * both the States panel, where the change is made, and the Clusters panel, where
+ * the consequence is read.
+ */
+.stale {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-small);
+  margin: var(--gap-small) 0;
+  padding: var(--gap-small);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+.stale__text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.stale__text b {
+  color: var(--text);
+}
+.stale__action {
+  align-self: flex-start;
 }
 
 /* ---------- lumps ---------- */

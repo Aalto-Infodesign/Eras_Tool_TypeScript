@@ -24,30 +24,6 @@ export function uniqueStates(states: Uint16Array): number[] {
 }
 
 /**
- * Reorders the chart's rows so this typology reads top-to-bottom as a staircase.
- *
- * The original's "order states" button, which did `uniq(name.split("-"))` and
- * appended `xor(statesOrder, newOrder)`. That `xor` is a symmetric difference,
- * so it silently *dropped* any state the typology visited twice — the state was
- * in both lists, so it appeared in neither result, and the row vanished from
- * the chart. Here the leftovers are the states not in the sequence, which is
- * what was meant, and they keep their relative order instead of lodash's.
- */
-export function orderFromTypology(
-  states: Uint16Array,
-  current: readonly number[],
-): readonly number[] {
-  const lead = uniqueStates(states)
-  const inLead = new Set(lead)
-  // Only states the caller already knows about: a typology can name a state
-  // that `current` has since had removed, and inventing a row for it would put
-  // an empty band in the chart.
-  const known = new Set(current)
-
-  return [...lead.filter((state) => known.has(state)), ...current.filter((s) => !inLead.has(s))]
-}
-
-/**
  * How many of each typology's patients survive `mask`, in the same order.
  *
  * One linear pass over every membership list, which together hold each patient
@@ -104,6 +80,25 @@ export function typologyIds(
  * show. Only states that actually repeat are numbered; adding `(1)` to every
  * label would be noise on the sequences that never come back.
  */
+/**
+ * Which steps land on a state the sequence visits more than once.
+ *
+ * The other half of `sequenceLabels`: that one numbers the returns, this one
+ * marks them, and they share a definition of "repeats" so a swatch never lifts
+ * beside a label with no ordinal on it.
+ */
+export function repeatedSteps(states: ArrayLike<number>): boolean[] {
+  const total = new Map<number, number>()
+  for (let i = 0; i < states.length; i++) {
+    const state = states[i] as number
+    total.set(state, (total.get(state) ?? 0) + 1)
+  }
+
+  const out: boolean[] = []
+  for (let i = 0; i < states.length; i++) out.push((total.get(states[i] as number) ?? 1) > 1)
+  return out
+}
+
 export function sequenceLabels(
   states: Uint16Array,
   stateNames: readonly string[],

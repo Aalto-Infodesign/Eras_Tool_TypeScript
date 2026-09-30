@@ -489,6 +489,32 @@ describe("medoid layer", () => {
     mask[7] = 0
     expect([...medoidPatients(run, [], mask)]).toEqual([8, 9])
   })
+
+  /*
+   * The grid asks for one typology's spines once per panel per streamed update,
+   * where the general path filters every cluster in the run. The short path has
+   * to answer identically or the two views disagree about what is on screen.
+   */
+  it("answers a single typology from its own result, identically", () => {
+    const { store, results } = clusterAll(twoSpeedRecords(30, 20))
+    const builder = new ClusterRunBuilder(store.patientCount, CLUSTER_DEFAULTS)
+    for (const result of results) builder.add(result)
+    const whole = builder.snapshot()
+
+    const key = (whole.clusters[0] as ClusterRef).typologyKey
+    const viaScan = whole.clusters
+      .filter((ref) => ref.typologyKey === key)
+      .map((ref) => ref.medoidPatient)
+      .sort((a, b) => a - b)
+
+    expect([...medoidPatients(whole, [], null, TOP_CLUSTER_LIMIT, key)].sort((a, b) => a - b))
+      .toEqual(viaScan)
+
+    const mask = new Uint8Array(store.patientCount).fill(1)
+    mask[viaScan[0] as number] = 0
+    expect([...medoidPatients(whole, [], mask, TOP_CLUSTER_LIMIT, key)].sort((a, b) => a - b))
+      .toEqual(viaScan.slice(1))
+  })
 })
 
 describe("isolating a cluster", () => {

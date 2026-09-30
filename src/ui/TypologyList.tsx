@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { useEras } from "../app/store.ts"
 import { buildPalette } from "../core/render/palette.ts"
-import { filteredSizes, orderFromTypology, typologyIds } from "../core/stats/silhouettes.ts"
+import { filteredSizes, typologyIds } from "../core/stats/silhouettes.ts"
 import { downloadText, safeFilename } from "../core/util/download.ts"
 import type { Typology } from "../core/types.ts"
 import { Panel } from "./Panel.tsx"
@@ -59,13 +59,11 @@ export function TypologyList(): React.JSX.Element | null {
   const store = useEras((s) => s.store)
   const typologies = useEras((s) => s.typologies)
   const visibleStates = useEras((s) => s.visibleStates)
-  const stateOrder = useEras((s) => s.stateOrder)
   const selected = useEras((s) => s.selectedTypologies)
   const population = useEras((s) => s.population)
   const selectionVersion = useEras((s) => s.selectionVersion)
   const toggle = useEras((s) => s.toggleTypology)
   const clear = useEras((s) => s.clearTypologies)
-  const setStateOrder = useEras((s) => s.setStateOrder)
 
   const [tab, setTab] = useState<Tab>("all")
   const [sortKey, setSortKey] = useState<SortKey>("size")
@@ -336,7 +334,6 @@ export function TypologyList(): React.JSX.Element | null {
                 maxSteps={store.extents.maxTrajectoryLength}
                 isSelected={selectedKeys.has(typology.key)}
                 onToggle={() => toggle(typology.key)}
-                onOrder={() => setStateOrder(orderFromTypology(typology.states, stateOrder))}
                 onExport={() =>
                   exportIds([typology], `silhouette_${safeFilename(typology.key)}.txt`)
                 }
@@ -437,7 +434,6 @@ interface CardProps {
   readonly maxSteps: number
   readonly isSelected: boolean
   readonly onToggle: () => void
-  readonly onOrder: () => void
   readonly onExport: () => void
 }
 
@@ -451,7 +447,6 @@ function Card({
   maxSteps,
   isSelected,
   onToggle,
-  onOrder,
   onExport,
 }: CardProps): React.JSX.Element {
   // Only worth two lines when the filters actually took something out of *this*
@@ -469,9 +464,13 @@ function Card({
       style={{ width: CARD_WIDTH, height: CARD_HEIGHT }}
     >
       {/*
-       * The actions sit outside the select button rather than inside it: a
+       * The action sits outside the select button rather than inside it: a
        * button inside a button is invalid HTML, and the version that nests them
        * loses the click to the card underneath as often as not.
+       *
+       * "Order rows by this shape" used to live here. It moved into the chart
+       * itself: selecting a typology now draws it along its own steps, so there
+       * is no global ordering left to bend toward one sequence.
        */}
       <div className="silhouette__actions">
         <button
@@ -481,14 +480,6 @@ function Card({
           onClick={onExport}
         >
           ⤓
-        </button>
-        <button
-          type="button"
-          className="button button--tiny"
-          title="Reorder the chart's rows to this shape"
-          onClick={onOrder}
-        >
-          ⇅
         </button>
       </div>
 

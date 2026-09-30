@@ -316,12 +316,211 @@ link, and the ids export lives in the expanded row. The reveal is keyed on the
 last selected cluster alone, so a re-sort or a streamed result cannot yank the
 list back to it while you are reading somewhere else.
 
+#### Pointing at a spine, and fixing it
+
+Clicking was doing two jobs at once: it was the only way to ask what a medoid
+stood for, *and* the way to commit to that answer. So finding the right cluster
+meant a click to isolate, a look, a click to undo, and another — each one a
+change to what was on screen, in a view you were trying to read.
+
+Hovering now asks and clicking still commits. Resting on a spine lifts its
+members out at `HIGHLIGHT_OPACITY` while everything else drops to `DIM_FADE`
+— a floor, not a factor, so the answer is legible wherever the opacity slider
+happens to sit. Clicking does what it always did: isolates the cluster, scopes
+the hairlines to its members and reveals its row in the table.
+
+The members are a **third renderer slot** rather than a rebuilt bulk. The bulk is
+megabytes that change when the data does; this is a few hundred lines that change
+when the pointer does, and re-uploading the former to raise the latter would make
+a hover cost what the whole view costs. They are drawn *over* the dimmed field
+rather than carved out of it, so they show at the sum of the two — still part of
+the field, just the part being named.
+
+**The change of emphasis is animated; the spine's own response is not.** Both
+halves of the dim are uniforms, so a frame of the fade is one `drawArrays` with
+two floats changed — nothing rebuilt, nothing re-uploaded, not even the row
+texture that a view transition replaces. The two therefore take their budgets
+separately, and this one is *measured* rather than guessed: `useFrameClock`
+already keeps a moving average of what this scene's draws cost, so the ceiling
+calibrates itself to the dataset and the machine instead of to a segment count
+someone picked once. Above `FADE_FRAME_BUDGET_MS` the highlight lands instead,
+because a stuttering fade reads worse than an instant one.
+
+One number drives both halves, so the field receding and the members arriving
+are one gesture rather than two that happen to start together — and the members
+stay uploaded until it reaches zero, or the fade-out would have nothing to fade.
+
+Two guards keep the reading honest. `clusterOfPatient` answers for any patient,
+not only for medoids, so a pick only means a cluster when it actually landed on
+the spine layer — otherwise a hairline under the cursor would isolate whatever
+cluster its owner happened to sit in, off a line nobody can aim at. And the
+pointer has to **settle** for `HOVER_SETTLE_MS` before anything is rebuilt:
+sweeping toward a spine crosses others on the way, and a trailing debounce of
+every pointer event would push the highlight permanently into the future, so the
+timer restarts only when the *target* changes. The trace under the cursor still
+follows per frame; only the cluster waits.
+
+#### Removing a state invalidates the run
+
+Clustering is a derivation of the data, not a view of it. The matrices are built
+from the spliced store, and a result is filed under a typology key and names a
+medoid patient — both of which only mean something against the sequences that
+produced them. Splice a state out and the typologies regroup under new keys:
+every `byTypology` join misses, every medoid stands for a cohort that no longer
+exists, and the typology-scoped lookups in the render path match nothing.
+
+None of that throws, which is the whole problem. Patient indices survive a splice
+by design — `reshape.ts` keeps rows in place so the selection mask and the
+membership lists stay valid — so a stale run is never an out-of-range read. It is
+a set of lookups that quietly return empty. The medoid layer stayed lit and drew
+nothing, which reads as a broken renderer rather than as out-of-date results.
+
+So the run carries the shape it was computed for. `clusterRemovedStates` is the
+removal set as of `startClustering`, `clusterStale` compares it with the one on
+screen, and `clusterRunOf` returns `null` for as long as they differ — one gate,
+so a stale run is invisible in a single place instead of being something five
+call sites have to remember. It is held as the removal *set* rather than as the
+store's identity because that is the exact predicate: the same set splices to the
+same store, so putting a state back makes an existing run valid again rather than
+merely re-runnable.
+
+**Re-running is a decision, not a consequence.** Taking states out is exploratory
+and done several at a time, and re-clustering on each click would spend a run
+apiece answering questions nobody asked. The prompt appears in the States panel,
+where the change is made, and in the Clusters panel, where the consequence is
+read; the chart's stats line carries a `clusters out of date` chip so the empty
+medoid layer explains itself. A run still in flight is left alone: its results
+are consistent with the matrices it was handed, so a *complete* run survives to
+be valid again on restore, and `ClusterClient` supersedes it by `runId` the
+moment a new one starts. The one automatic change is a floor — medoids alone,
+over a run that has just gone stale, would be a blank chart, so the hairlines
+come on, the same failure `toggleLayer` already refuses to let anyone click their
+way into.
+
+The Clusters panel also grew a plain **Cluster *n* typologies** button for when
+there is no run at all. Clustering only ever started by itself, at load, so every
+path that ended without one — nothing large enough to cluster after a splice, an
+error, a cancel — was a dead end with no control anywhere to leave it.
+
 ### Small multiples
 
-Overlaying several typologies in one frame is the honest default — they share a
-cohort and a time axis. Past a handful it stops separating: paths cross on shared
-rows and the slope of any one sequence, which is the thing being compared,
-disappears into the others.
+**How many typologies are selected decides how the chart reads**, and nothing
+stores it:
+
+| selected | reading |
+|---|---|
+| exactly one | that typology alone, on *its own steps* — a rule per visit |
+| anything else | one panel each, as small multiples |
+
+With nothing selected the grid shows the biggest few, which is what the app opens
+on: a screen of shapes to choose from rather than a hairball to filter down.
+
+Overlaying several typologies in a single frame used to be the middle case, and
+it was the weakest reading in the app: they shared rows, so the paths crossed and
+the slope of any one of them — the thing being compared — was lost in the others.
+The grid answers that question properly, so the overlay is left to do the one
+thing it is good at. There is no view toggle; the selection already says which
+question is being asked, and a stored copy of that is a second source of truth
+that drifts.
+
+Two things went with it. The typology cards' **"order rows by this shape"**
+button, and the **reordering in the states panel** — both existed to bend one
+global order toward one sequence, which was always a compromise for every other
+sequence and could not express a repeated state at all. Selecting a typology now
+does that exactly, per sequence, with no compromise. The states panel keeps
+membership: take a state out of the dataset, or put it back.
+
+The global view loses the ability to be arranged, which is a real loss. A Sankey,
+as in the original, is the right answer for that and is not built yet.
+
+#### Three layers, three clocks
+
+The grid paints into three stacked canvases rather than one, because the layers
+change on completely different schedules and the expensive one changes least:
+
+| canvas | holds | repaints when |
+|---|---|---|
+| rules | the ladders and their labels | the layout does |
+| lines | every panel's cohort | the selection or the opacity does |
+| spines | medoids, and the hovered cluster's members | the pointer does |
+
+Folded into one context, pointing at a spine repainted a hundred thousand
+hairlines in order to change a few hundred, which is what made the view stutter
+once the spines arrived. Separated, a hover touches only the cheap layer — and
+the field underneath recedes by a **CSS opacity on the element**, so the browser
+composites pixels it already has instead of drawing them again. That also keeps
+the density structure intact, where mixing every line toward the background
+flattens it: what steps back is the whole sheet, not each line's relationship to
+the ones it crosses.
+
+The grid splits the reading across **two clocks**, because its halves cost
+completely different things. Emphasising a spine is a repaint of the cheapest
+layer with one extra trajectory in it, so it follows the pointer directly — the
+mark you are aiming at should acknowledge you. Lifting its members out builds a
+whole cluster's geometry and pushes the field back, so that waits for the
+pointer to settle. Pointing at a spine answers immediately; asking who it stands
+for is the question you have to hold still for. The members then fade on the
+same curve as the hairline canvas behind them, one through `useAnimatedScalar`
+and one through a CSS transition, which is affordable here for the same reason
+the hover is: a frame repaints the cheap layer and never the field.
+
+Spines are thinner here than in the single chart (1.4px against 2.5px) for the
+same reason the panels are smaller — at a quarter of the width, a 2.5px line is
+a quarter of the gap between two rows, and a handful of them closed the ladder
+up. While one cluster is highlighted every *other* spine drops too, which the
+first pass missed: the members being lifted sit under a layer of spines drawn at
+full strength, so nothing appeared to change.
+
+#### A panel is a sample, past a point
+
+The grid opens on the biggest typologies, and on both sample datasets one cohort
+is several times the size of the next — 11,589 patients of 24,243 on the 25k
+file, drawn in full into a panel a few hundred pixels across. Past a point more
+trajectories are not more information; they are the same pixels drawn again, at
+full cost.
+
+So each panel draws at most `COMPACT_BUDGET` patients (`DETAILED_BUDGET` in the
+two-column layout), taken by a fixed stride over the cohort. A stride over a list
+in patient order is an unbiased sample, and a fixed one keeps the picture
+identical between repaints — a random sample would reshuffle every panel on
+every layout change. `npx tsx scripts/gridCost.ts` prints what that is worth:
+
+| dataset | unsampled | at 1,200 |
+|---|---|---|
+| 25k | 99,987 segments | 37,407 |
+| 250k | 250,704 segments | 77,775 |
+
+The alternative was to draw **lumps** instead of hairlines in the panels, which
+would have been cheaper still and much worse: a lump is grouped by state pair,
+so it says nothing about slope — and slope is the entire reason the grid exists.
+Keeping the mark and reducing the count preserves the reading; changing the mark
+would not. The footer shows the real cohort size with a dotted rule under it
+when what is drawn is a sample of it.
+
+#### The grid carries the whole stack
+
+Spines are drawn per panel, over their own typology's cohort, and pointing at one
+lifts its members exactly as in the single chart. A cluster is a group *within*
+one typology, so a panel is precisely the frame it belongs in — without this the
+spines were readable one typology at a time, which is the one thing this view
+exists not to make you do. Clicking a spine opens that typology *and* isolates
+the cluster in one move (`focusCluster`), because isolating one inside a grid of
+eight other panels is a change you could not see.
+
+Two consequences of sharing one canvas. The spines get their own memo rather than
+a field of `panels`: the hairlines change when the selection does, while results
+stream in every `CLUSTER_FLUSH_MS` for the length of a run, and folded together a
+run would rebuild every panel's full member geometry a dozen times a second.
+And the fade is baked into the colours before painting, because these panels take
+the `rowColors` path through `paintGeometry` — the one that reproduces the GPU's
+per-vertex blend exactly — which strokes those colours directly and never sees
+`fade`.
+
+The panels' hairlines are drawn whatever the **Lines** toggle says, and that is
+deliberate rather than an oversight: they *are* the panel, the shape whose slope
+is being compared, not a layer over something else. What the toggle governs in
+the single chart, the opacity slider governs here — so the slider stays live in
+the grid, and reads as a backdrop control whenever spines are over it.
 
 The grid trades the shared frame for legibility, and in doing so buys something
 the shared frame cannot give: **each panel gets one row per step of its own
@@ -344,12 +543,18 @@ a four-step panel is a shorter ladder than a seven-step one rather than a
 stretched one — spreading a short sequence over the same height would make it
 read as the shallowest path on screen when it may be the steepest.
 
-Clicking a panel carries that projection to the full-size chart
-(`focusedTypology`): one typology, on its own steps, with a rule per visit. It is
-its own field rather than "exactly one typology is selected", because it is a
-different *projection* and not a narrower selection — inferring it would make a
-two-typology selection silently change what a row means. The box plots hide while
-it is on: they answer a per-state question that positions do not have.
+Clicking a panel selects that typology alone, which by the table above is the
+full-size chart on its own steps. The box plots hide there: they answer a
+per-state question that positions do not have.
+
+The cluster selection is **scoped to the focused typology** in the render path,
+not only cleared in the store when the typology changes. A cluster is a group
+*within* one typology, so one from anywhere else has no place on this ladder —
+its members walk a different sequence, and step 3 of theirs is a different state
+from step 3 of this one. The failure was silent and worth guarding twice:
+`medoidPatients` filters to the focused typology *and* to the chosen clusters,
+and when the two disagreed it returned nothing, so the spines just never
+appeared.
 
 Repeated rows carry their visit number — `a (1)`, `b`, `a (2)`, `c` — and only
 states that actually repeat get one, since `(1)` on every label is noise on the
@@ -391,9 +596,12 @@ extracted for — `CanvasRenderer` had the only copy of the drawing loop, and th
 grid needed the same thing against a sub-rectangle with its own row lookup.
 Headers and hit areas are DOM over the pixels.
 
-Capped at 24 panels: past that the grid is no more readable than the overlay it
-replaced, and the canvas gets absurdly tall. With nothing selected it shows the
-biggest few, so switching to it never lands on an empty grid.
+**Four or fewer panels go to two columns**, which buys enough height for a wider
+row pitch and enough width to label every row with its ordinal — at which point a
+panel is a readable chart rather than a thumbnail. Past that the point is
+comparing shapes, and four across gets more of them on screen than any one
+deserves individually. Capped at 24: a path selection can name hundreds, and past
+that a grid says no more than the overlay it replaced.
 
 It is a test, and deliberately narrow: no medoid overlay, no lumps, no hover
 picking. Enough to answer whether comparing slopes side by side is worth losing
@@ -774,15 +982,13 @@ agree.
 
 ## Clustering — parked
 
-**Turned off behind `CLUSTERING_ENABLED` in `src/app/features.ts`.** The engine
-below is intact and still covered by its tests and benchmarks; what is off is the
-*product*. No run starts on load, the cluster panel is not mounted, and the chart
-offers no cluster-derived layers. A run over thousands of typologies streamed
-thousands of updates into a side panel that could not hold them, and the reading
-it produced was not worth that. Flipping the flag back on restores the run and
-the table; the chart's cluster layers (colour-by-cluster, medoid spines, ribbons
-grouped by cluster) would need rewiring in `useChartLayers`, which now builds the
-simple path only.
+**Back on** — `CLUSTERING_ENABLED` in `src/app/features.ts` is `true`, and the
+medoid layer above is what the run now feeds. It was parked for a while: a run
+over thousands of typologies streamed thousands of updates into a side panel that
+could not hold them, and the reading it produced was not worth that. What made it
+worth turning back on was the medoid layer — one line per cluster, against the
+field it summarises — rather than the table alone. Colour-by-cluster and
+cluster-grouped ribbons are still unwired in `useChartLayers`.
 
 The rest of this section documents the engine as built.
 

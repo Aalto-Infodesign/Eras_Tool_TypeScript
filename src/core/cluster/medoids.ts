@@ -47,6 +47,27 @@ export function medoidPatients(
     (typologyKey === null || ref.typologyKey === typologyKey) &&
     (mask === null || mask[ref.medoidPatient] === 1)
 
+  /*
+   * One typology's spines, straight from its own result.
+   *
+   * The scan below is over *every* cluster in the run — tens of thousands on a
+   * real dataset — and the small-multiples grid asks this question once per
+   * panel, on every streamed update, for as long as a run lasts. `byTypology`
+   * already holds each typology's medoids as a column, so the answer is a walk
+   * of the handful that belong to it rather than a filter of all the rest.
+   */
+  if (selectedClusters.length === 0 && typologyKey !== null) {
+    const result = run.byTypology.get(typologyKey)
+    if (result === undefined) return new Uint32Array()
+
+    const out: number[] = []
+    for (let cluster = 0; cluster < result.k; cluster++) {
+      const patient = result.medoidPatient[cluster] as number
+      if (mask === null || mask[patient] === 1) out.push(patient)
+    }
+    return Uint32Array.from(out)
+  }
+
   if (selectedClusters.length > 0) {
     const chosen = new Set(selectedClusters)
     return collect(run.clusters.filter((ref) => chosen.has(ref.globalIndex) && passes(ref)))

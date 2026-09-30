@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 
-import { useEras } from "../app/store.ts"
+import { chartModeOf, focusedTypologyOf, useEras } from "../app/store.ts"
 import { clusterMembers, medoidPatients } from "../core/cluster/medoids.ts"
 import { TOP_CLUSTER_LIMIT } from "../core/cluster/types.ts"
 import { sequenceLabels } from "../core/stats/silhouettes.ts"
@@ -14,6 +14,7 @@ import {
 } from "../core/render/geometry.ts"
 import { buildPalette, type Palette } from "../core/render/palette.ts"
 import { buildLumps, type Lump } from "../core/render/lumps.ts"
+import { useClusterRun } from "./useClusterRun.ts"
 
 /** Shared empty list, so the layers below a disabled mode keep their identity. */
 const NO_PATIENTS = new Uint32Array()
@@ -26,6 +27,10 @@ export interface ChartLayers {
   readonly bulk: Geometry | null
   /** Medoid spines when they sit *over* the hairlines; the renderer's own slot. */
   readonly overlay: Geometry | null
+  /** The members of the cluster under the cursor, or `null` when none is. */
+  readonly highlight: Geometry | null
+  /** How many patients `highlight` holds — what the hovered spine stands for. */
+  readonly highlightCount: number
   /**
    * Patients the hairline layer is drawing: the whole selection, or — while
    * clusters are isolated — only their members.
@@ -57,6 +62,8 @@ export interface ChartLayers {
   readonly rowLabels: readonly string[]
   /** True while rows are steps of one sequence rather than states. */
   readonly byPosition: boolean
+  /** One chart, or one per selected typology. */
+  readonly mode: "overlay" | "multiples"
   /** The builder inputs, so a second view can derive its own panels from them. */
   readonly geometryOptions: GeometryOptions
   readonly statePalette: Palette
@@ -92,11 +99,20 @@ export function useChartLayers(): ChartLayers {
   const xDomainOverride = useEras((s) => s.xDomainOverride)
   const filters = useEras((s) => s.filters)
   const layers = useEras((s) => s.layers)
-  const focusedKey = useEras((s) => s.focusedTypology)
   const typologies = useEras((s) => s.typologies)
-  const clusterRun = useEras((s) => s.clusterRun)
+  const clusterRun = useClusterRun()
   const clusterVersion = useEras((s) => s.clusterVersion)
   const selectedClusters = useEras((s) => s.selectedClusters)
+  const hoveredCluster = useEras((s) => s.hoveredCluster)
+  const selectedTypologies = useEras((s) => s.selectedTypologies)
+
+  /*
+   * Both derived from the selection. One typology means "draw it along its own
+   * steps"; two or more means the grid, where that projection is per panel. See
+   * `chartModeOf`.
+   */
+  const focusedKey = focusedTypologyOf(selectedTypologies)
+  const mode = chartModeOf(selectedTypologies)
 
   const stateCount = store?.stateNames.length ?? 0
 
@@ -162,6 +178,25 @@ export function useChartLayers(): ChartLayers {
     [selection, selectionVersion],
   )
 
+  /*
+   * Only clusters of the typology on screen.
+   *
+   * A cluster is a group *within* one typology, so one from anywhere else has
+   * no place on this ladder — its members walk a different sequence, and step 3
+   * of theirs is a different state from step 3 of this one. The store clears the
+   * selection when the typology changes; this makes the render path independent
+   * of whether it did, because the failure is silent: `medoidPatients` filters
+   * to the focused typology and to the chosen clusters, and when those two
+   * disagree it returns nothing and the spines simply never appear.
+   */
+  const scopedClusters = useMemo<readonly number[]>(() => {
+    if (focusedKey === null || clusterRun === null) return selectedClusters
+    return selectedClusters.filter(
+      (index) => clusterRun.clusters[index]?.typologyKey === focusedKey,
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedKey, clusterRun, clusterVersion, selectedClusters])
+
   /**
    * The cluster representatives, in medoid mode.
    *
@@ -179,13 +214,21 @@ export function useChartLayers(): ChartLayers {
      */
     return medoidPatients(
       clusterRun,
-      selectedClusters,
+      scopedClusters,
       selection?.mask ?? null,
       TOP_CLUSTER_LIMIT,
       focusedKey,
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layers.medoids, clusterRun, clusterVersion, selectedClusters, selection, selectionVersion, focusedKey])
+  }, [
+    layers.medoids,
+    clusterRun,
+    clusterVersion,
+    scopedClusters,
+    selection,
+    selectionVersion,
+    focusedKey,
+  ])
 
   /*
    * Isolating a cluster narrows the hairlines to its members.
@@ -196,7 +239,7 @@ export function useChartLayers(): ChartLayers {
    * clusters already scoped the spines; it now scopes what is underneath them
    * too, so the cluster table's selection finally means something in the chart.
    */
-  const isIsolated = clusterRun !== null && selectedClusters.length > 0
+  const isIsolated = clusterRun !== null && scopedClusters.length > 0
 
   const linePatients = useMemo<Uint32Array>(() => {
     if (focused !== null && !isIsolated) {
@@ -210,25 +253,81 @@ export function useChartLayers(): ChartLayers {
       return Uint32Array.from(members)
     }
     if (!isIsolated || clusterRun === null) return visiblePatients
-    return clusterMembers(clusterRun, selectedClusters, selection?.mask ?? null)
+    return clusterMembers(clusterRun, scopedClusters, selection?.mask ?? null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focused, isIsolated, clusterRun, clusterVersion, selectedClusters, visiblePatients, selection, selectionVersion])
+  }, [
+    focused,
+    isIsolated,
+    clusterRun,
+    clusterVersion,
+    scopedClusters,
+    visiblePatients,
+    selection,
+    selectionVersion,
+  ])
+
+  /**
+   * The people the spine under the cursor stands for.
+   *
+   * The same `clusterMembers` an isolating click uses, drawn as its own layer
+   * instead of replacing the bulk — hovering should *answer* a question about
+   * what is on screen, not change what is on screen. Scoped to the ladder being
+   * drawn for the reason `scopedClusters` exists: a cluster from another
+   * typology walks a different sequence, so its step 3 is not this one's.
+   */
+  const highlightPatients = useMemo<Uint32Array>(() => {
+    if (hoveredCluster === null || clusterRun === null || !layers.medoids) return NO_PATIENTS
+    const ref = clusterRun.clusters[hoveredCluster]
+    if (ref === undefined) return NO_PATIENTS
+    if (focusedKey !== null && ref.typologyKey !== focusedKey) return NO_PATIENTS
+    return clusterMembers(clusterRun, [hoveredCluster], selection?.mask ?? null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    hoveredCluster,
+    clusterRun,
+    clusterVersion,
+    layers.medoids,
+    focusedKey,
+    selection,
+    selectionVersion,
+  ])
 
   // One builder, two readings: the difference between the density field and the
   // summary is only *which patients* are handed to it.
   const lineGeometry = useMemo(() => {
     // Focused, the hairlines are the whole reading — the spines and the lumps
     // are grouped by state, which is not what the rows mean here.
-    if (store === null || rowStates.length === 0 || !(layers.lines || byPosition)) return null
+    if (store === null || mode === "multiples" || rowStates.length === 0) return null
+    /*
+     * The toggle means the same thing here as anywhere else. The floor is only
+     * for the case where it would otherwise leave nothing: lumps are grouped by
+     * state pair and have no reading on a ladder of steps, so with lumps as the
+     * only layer a focused chart would be empty.
+     */
+    if (!(layers.lines || (byPosition && !layers.medoids))) return null
     const t0 = performance.now()
-    return { geometry: buildGeometry(store, linePatients, geometryOptions), ms: performance.now() - t0 }
-  }, [store, rowStates.length, layers.lines, byPosition, linePatients, geometryOptions])
+    return {
+      geometry: buildGeometry(store, linePatients, geometryOptions),
+      ms: performance.now() - t0,
+    }
+  }, [store, mode, rowStates.length, layers.lines, byPosition, linePatients, geometryOptions])
 
   const medoidGeometry = useMemo(() => {
-    if (store === null || rowStates.length === 0 || medoids.length === 0) return null
+    if (store === null || mode === "multiples" || rowStates.length === 0 || medoids.length === 0) {
+      return null
+    }
     const t0 = performance.now()
-    return { geometry: buildGeometry(store, medoids, geometryOptions), ms: performance.now() - t0 }
-  }, [store, rowStates.length, medoids, geometryOptions])
+    return {
+      geometry: buildGeometry(store, medoids, geometryOptions),
+      ms: performance.now() - t0,
+    }
+  }, [store, mode, rowStates.length, medoids, geometryOptions])
+
+  const highlightGeometry = useMemo(() => {
+    if (store === null || mode === "multiples" || rowStates.length === 0) return null
+    if (highlightPatients.length === 0) return null
+    return buildGeometry(store, highlightPatients, geometryOptions)
+  }, [store, mode, rowStates.length, highlightPatients, geometryOptions])
 
   /*
    * Which slot each one lands in. The spines go on top when the hairlines are
@@ -247,7 +346,10 @@ export function useChartLayers(): ChartLayers {
    */
   const lumps = useMemo<readonly Lump[]>(() => {
     if (store === null || byPosition || !layers.lumps) return []
-    return buildLumps(store, visiblePatients, { axis, durationRange: filters.duration })
+    return buildLumps(store, visiblePatients, {
+      axis,
+      durationRange: filters.duration,
+    })
   }, [store, byPosition, layers.lumps, visiblePatients, axis, filters.duration])
 
   /**
@@ -270,6 +372,8 @@ export function useChartLayers(): ChartLayers {
   return {
     bulk,
     overlay,
+    highlight: highlightGeometry,
+    highlightCount: highlightPatients.length,
     linePatients,
     isIsolated,
     lumps,
@@ -280,6 +384,7 @@ export function useChartLayers(): ChartLayers {
     rowStates,
     rowLabels,
     byPosition,
+    mode,
     linesDrawn: lineGeometry !== null,
     geometryOptions,
     statePalette,

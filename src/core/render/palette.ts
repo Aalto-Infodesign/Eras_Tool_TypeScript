@@ -36,6 +36,16 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
  * Evenly spaced hues walked by the golden angle rather than sequentially, so
  * adjacent states in the vertical ordering never get adjacent hues.
  */
+/** One state's colour as packed RGB — the form `mixToward` fades. */
+export function packedRgb(palette: Palette, state: number): number {
+  const i = state * 4
+  return (
+    ((palette.bytes[i] ?? 255) << 16) |
+    ((palette.bytes[i + 1] ?? 255) << 8) |
+    (palette.bytes[i + 2] ?? 255)
+  )
+}
+
 export function buildPalette(stateCount: number, rotation = 0): Palette {
   const bytes = new Uint8Array(stateCount * 4)
   const css: string[] = new Array<string>(stateCount)

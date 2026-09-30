@@ -153,3 +153,63 @@ export function useAnimatedView(
 
   return view
 }
+
+/** Shorter than a move: this is a change of emphasis, not of what is on screen. */
+const FADE_MS = 190
+
+/**
+ * Tweens one number, for the layers whose *emphasis* changes rather than their
+ * position.
+ *
+ * Pointing at a spine dims a million hairlines and lifts a few hundred, and both
+ * are uniforms — so a frame here is one `drawArrays` with two floats changed,
+ * with nothing rebuilt, re-uploaded, or even re-measured. That is cheaper than a
+ * frame of `useAnimatedView`, which also replaces the row texture, so the two
+ * take their budgets separately: see `FADE_FRAME_BUDGET_MS`.
+ *
+ * Reversing mid-flight works by construction — the tween starts from wherever
+ * the value currently is, so sweeping on and off a spine never snaps.
+ */
+export function useAnimatedScalar(target: number, enabled: boolean): number {
+  const [value, setValue] = useState(target)
+  const current = useRef(target)
+  const handle = useRef(0)
+
+  useEffect(() => {
+    const cancel = (): void => {
+      if (handle.current !== 0) {
+        cancelAnimationFrame(handle.current)
+        handle.current = 0
+      }
+    }
+
+    const from = current.current
+    if (Math.abs(from - target) < EPSILON) return
+
+    if (!enabled) {
+      cancel()
+      current.current = target
+      setValue(target)
+      return
+    }
+
+    const started = performance.now()
+
+    const step = (): void => {
+      const t = Math.min(1, (performance.now() - started) / FADE_MS)
+      const next = from + (target - from) * ease(t)
+
+      current.current = next
+      setValue(next)
+
+      handle.current = t < 1 ? requestAnimationFrame(step) : 0
+    }
+
+    cancel()
+    handle.current = requestAnimationFrame(step)
+
+    return cancel
+  }, [target, enabled])
+
+  return value
+}
