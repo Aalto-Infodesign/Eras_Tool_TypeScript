@@ -7,7 +7,7 @@ import { buildGeometry, type Geometry, type GeometryOptions } from "../core/rend
 import { mixToward, paintGeometry } from "../core/render/paint2d.ts"
 import { buildPalette, packedRgb } from "../core/render/palette.ts"
 import { SegmentIndex } from "../core/render/picking.ts"
-import { repeatedSteps, sequenceLabels } from "../core/stats/silhouettes.ts"
+import { panelTypologies, repeatedSteps, sequenceLabels } from "../core/stats/silhouettes.ts"
 import type { Typology } from "../core/types.ts"
 import { StateDots } from "./StateDots.tsx"
 import { createHoverSettler, HIGHLIGHT_OPACITY } from "./hover.ts"
@@ -184,15 +184,15 @@ export function SmallMultiples({
 
   /*
    * The selection, in the list's own order — or, with nothing selected, the
-   * biggest few, because this is the view the app opens on. A path selection can
-   * name hundreds, and past `MAX_PANELS` a grid says no more than the overlay it
-   * replaced.
+   * biggest few, because this is what the Trajectories view shows before
+   * anything is picked. A path selection can name hundreds, and past
+   * `MAX_PANELS` a grid says no more than the overlay it replaced. The rule is
+   * `panelTypologies`, shared with the View panel's mini of this grid.
    */
-  const shown = useMemo<readonly Typology[]>(() => {
-    if (selected.length === 0) return typologies.slice(0, MAX_PANELS)
-    const keys = new Set(selected)
-    return typologies.filter((t) => keys.has(t.key)).slice(0, MAX_PANELS)
-  }, [typologies, selected])
+  const shown = useMemo<readonly Typology[]>(
+    () => panelTypologies(typologies, selected, MAX_PANELS),
+    [typologies, selected],
+  )
 
   const hiddenCount = (selected.length === 0 ? typologies.length : selected.length) - shown.length
 
@@ -686,11 +686,14 @@ export function SmallMultiples({
                 width: rect.width,
                 height: rect.height,
               }}
-              title={
-                onSpine
-                  ? "Open this typology with that cluster isolated"
-                  : `${panel.typology.key} — click to open it alone, full size`
-              }
+              /*
+               * No `title`: a native tooltip appears under the pointer, which is
+               * where the dots' own panel appears, so the browser covered the
+               * sequence with a worse rendering of it. The hint lives in that
+               * panel now, which is also where someone reading the run is
+               * already looking.
+               */
+              aria-label={`${panel.typology.key} — open it alone, full size`}
               onPointerEnter={() => setHovered(index)}
               onPointerMove={(event) => handleMove(index, event)}
               onPointerLeave={() => handleLeave(index)}
@@ -723,6 +726,11 @@ export function SmallMultiples({
                     labels={panel.labels}
                     repeated={panel.repeated}
                     palette={palette}
+                    hint={
+                      onSpine
+                        ? "click the spine to isolate that cluster"
+                        : "click to open this typology full size"
+                    }
                   />
                   <span className="multiples__steps">
                     {isDetailed ? panel.typology.key : `${panel.steps.length} steps`}

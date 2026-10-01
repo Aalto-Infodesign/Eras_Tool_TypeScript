@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { buildStore } from "../model/build.ts"
 import {
   filteredSizes,
+  panelTypologies,
   repeatedSteps,
   sequenceLabels,
   typologyIds,
@@ -106,5 +107,36 @@ describe("repeatedSteps", () => {
     const states = Uint16Array.of(2, 0, 1, 0, 2, 2)
     const labels = sequenceLabels(states, names)
     expect(repeatedSteps(states)).toEqual(labels.map((label) => label.includes("(")))
+  })
+})
+
+describe("panelTypologies", () => {
+  /** a-b ×4, a-c ×3, b ×2, c-a ×1: the list is biggest first. */
+  const typologies = () =>
+    buildTypologies(
+      buildStore([
+        ...["p1", "p2", "p3", "p4"].map((id) => patient(id, ["a", "b"])),
+        ...["p5", "p6", "p7"].map((id) => patient(id, ["a", "c"])),
+        ...["p8", "p9"].map((id) => patient(id, ["b"])),
+        patient("p10", ["c", "a"]),
+      ]),
+    )
+
+  it("shows the biggest few when nothing is selected", () => {
+    expect(panelTypologies(typologies(), [], 3).map((t) => t.key)).toEqual(["a-b", "a-c", "b"])
+  })
+
+  it("shows the selection in the list's order, not the order it was picked in", () => {
+    expect(panelTypologies(typologies(), ["c-a", "a-b"], 6).map((t) => t.key)).toEqual(["a-b", "c-a"])
+  })
+
+  it("caps the selection at the limit", () => {
+    const all = typologies()
+    const shown = panelTypologies(all, all.map((t) => t.key).reverse(), 2)
+    expect(shown.map((t) => t.key)).toEqual(["a-b", "a-c"])
+  })
+
+  it("ignores keys that name no typology", () => {
+    expect(panelTypologies(typologies(), ["gone"], 6)).toEqual([])
   })
 })

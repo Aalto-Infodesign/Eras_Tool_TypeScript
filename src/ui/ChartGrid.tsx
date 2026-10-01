@@ -118,9 +118,14 @@ export function ChartGrid({
                 className="chart__rowline"
                 stroke={palette.css[state] ?? "currentColor"}
               />
+              {/*
+               * Above the rule, and further above it than it used to be: the
+               * rule now carries a range bar with its extent labels below it,
+               * so the two share a line and have to share it by height.
+               */}
               <text
                 x={6}
-                y={-4}
+                y={-7}
                 className="chart__rowlabel"
                 fill={palette.css[state] ?? "currentColor"}
               >

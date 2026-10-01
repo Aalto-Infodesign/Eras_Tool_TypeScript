@@ -64,6 +64,7 @@ export function TypologyList(): React.JSX.Element | null {
   const selectionVersion = useEras((s) => s.selectionVersion)
   const toggle = useEras((s) => s.toggleTypology)
   const clear = useEras((s) => s.clearTypologies)
+  const setHoveredTypology = useEras((s) => s.setHoveredTypology)
 
   const [tab, setTab] = useState<Tab>("all")
   const [sortKey, setSortKey] = useState<SortKey>("size")
@@ -334,6 +335,7 @@ export function TypologyList(): React.JSX.Element | null {
                 maxSteps={store.extents.maxTrajectoryLength}
                 isSelected={selectedKeys.has(typology.key)}
                 onToggle={() => toggle(typology.key)}
+                onHover={(isHovering) => setHoveredTypology(isHovering ? typology.key : null)}
                 onExport={() =>
                   exportIds([typology], `silhouette_${safeFilename(typology.key)}.txt`)
                 }
@@ -434,6 +436,11 @@ interface CardProps {
   readonly maxSteps: number
   readonly isSelected: boolean
   readonly onToggle: () => void
+  /**
+   * The pointer entering and leaving the card, for the Sankey to trace this
+   * typology's path — see `hoveredTypology`.
+   */
+  readonly onHover: (isHovering: boolean) => void
   readonly onExport: () => void
 }
 
@@ -447,8 +454,14 @@ function Card({
   maxSteps,
   isSelected,
   onToggle,
+  onHover,
   onExport,
 }: CardProps): React.JSX.Element {
+  // Windowing unmounts a card as it scrolls out, pointer or not, and the
+  // pointer then never leaves it: the Sankey would keep tracing its path.
+  const clearHoveredTypology = useEras((s) => s.clearHoveredTypology)
+  useEffect(() => () => clearHoveredTypology(typology.key), [clearHoveredTypology, typology.key])
+
   // Only worth two lines when the filters actually took something out of *this*
   // group; otherwise the second line repeats the first on every card.
   const showsFiltered = live !== null && live !== typology.size
@@ -488,6 +501,8 @@ function Card({
         className="silhouette__body"
         title={typology.key}
         onClick={onToggle}
+        onPointerEnter={() => onHover(true)}
+        onPointerLeave={() => onHover(false)}
         aria-pressed={isSelected}
       >
         <span className="silhouette__stats">

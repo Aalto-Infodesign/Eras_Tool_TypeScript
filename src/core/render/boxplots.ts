@@ -153,3 +153,95 @@ function quantileFromHistogram(
 
   return lower ?? lo + span
 }
+
+/**
+ * The same summary, but per *step* of one sequence rather than per state.
+ *
+ * The focused chart draws a rule per visit, so a typology that returns to `b`
+ * has two `b` rows — and the whole reason to separate them is that they happen
+ * at different times. `buildStateStats` pools every visit to a state into one
+ * datum and would put the identical glyph on both rules, which says the opposite
+ * of what the view is for.
+ *
+ * Indexed by step, so `stats[i]` belongs to row `i`; `null` where no drawn
+ * patient reached that far. `state` carries the state at that step, for colour.
+ *
+ * Patients are assumed to walk the sequence the rows came from — which is what a
+ * typology *is* — so event `start + i` is step `i`. A patient with fewer events
+ * than there are rows simply contributes to the steps it has.
+ */
+export function buildStepStats(
+  store: TrajectoryStore,
+  patients: Uint32Array,
+  stepCount: number,
+  axis: XAxis,
+  buckets: number = BUCKETS,
+): (StateStats | null)[] {
+  if (stepCount === 0) return []
+
+  const xs = axis === "age" ? store.ages : store.years
+  const [lo, hi] = axis === "age" ? store.extents.age : store.extents.year
+  const span = Math.max(hi - lo, 1e-9)
+
+  const { offsets, stateIds } = store
+
+  const histogram = new Uint32Array(stepCount * buckets)
+  const counts = new Uint32Array(stepCount)
+  const mins = new Float64Array(stepCount).fill(Infinity)
+  const maxes = new Float64Array(stepCount).fill(-Infinity)
+  const states = new Int32Array(stepCount).fill(-1)
+
+  for (let i = 0; i < patients.length; i++) {
+    const patient = patients[i] as number
+    const start = offsets[patient] as number
+    const end = offsets[patient + 1] as number
+    const steps = Math.min(end - start, stepCount)
+
+    for (let step = 0; step < steps; step++) {
+      const e = start + step
+      const x = xs[e] as number
+
+      if (states[step] === -1) states[step] = stateIds[e] as number
+
+      // Extremes exactly, as above: they are the span of the drawn bar.
+      if (x < (mins[step] as number)) mins[step] = x
+      if (x > (maxes[step] as number)) maxes[step] = x
+
+      const slot = Math.min(buckets - 1, Math.max(0, Math.floor(((x - lo) / span) * buckets)))
+      const at = step * buckets + slot
+      histogram[at] = (histogram[at] as number) + 1
+      counts[step] = (counts[step] as number) + 1
+    }
+  }
+
+  const out: (StateStats | null)[] = []
+  for (let step = 0; step < stepCount; step++) {
+    const count = counts[step] as number
+    if (count === 0) {
+      out.push(null)
+      continue
+    }
+
+    const min = mins[step] as number
+    const max = maxes[step] as number
+    const base = step * buckets
+
+    const at = (q: number): number =>
+      Math.min(
+        max,
+        Math.max(min, quantileFromHistogram(histogram, base, buckets, count, q, lo, span)),
+      )
+
+    out.push({
+      state: states[step] as number,
+      count,
+      min,
+      q1: at(0.25),
+      median: at(0.5),
+      q3: at(0.75),
+      max,
+    })
+  }
+
+  return out
+}

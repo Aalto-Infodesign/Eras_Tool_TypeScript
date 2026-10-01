@@ -229,8 +229,35 @@ body {
   min-width: 220px;
 }
 .controls__group--wide input {
+  -webkit-appearance: none; /* Override default CSS styles */
+  appearance: none;
   flex: 1;
+  background: var(--accent);
+  border-radius: var(--radius);
+  height: 10px;
+  outline: none;
 }
+
+.controls__group--wide input::-webkit-slider-thumb {
+  -webkit-appearance: none; /* Override default look */
+  appearance: none;
+  width: 15px; /* Set a specific slider handle width */
+  height: 15px; /* Slider handle height */
+  background: var(--text); /* Green background */
+  cursor: pointer; /* Cursor on hover */
+  border-radius: 100px;
+  border: none;
+}
+
+.controls__group--wide input::-moz-range-thumb {
+  width: 15px; /* Set a specific slider handle width */
+  height: 15px; /* Slider handle height */
+  background: var(--text); /* Green background */
+  cursor: pointer; /* Cursor on hover */
+  border-radius: 100px;
+  border: none;
+}
+
 .controls__value {
   font-family: ui-monospace, monospace;
   color: var(--muted);
@@ -299,6 +326,13 @@ body {
   min-width: 0;
 }
 
+/* Between the header and the fold, so it survives the fold. The bottom padding
+   stands in for the body's row gap, which this is no longer part of. */
+.panel__summary {
+  padding: 0 10px 8px;
+  min-width: 0;
+}
+
 .panel__count {
   font-family: ui-monospace, monospace;
 }
@@ -315,18 +349,27 @@ body {
   font-size: 10px;
 }
 
+/* One row that scrolls sideways rather than a wrapping block: this sits outside
+   the fold, so folding the panel away has to buy back a fixed amount of column
+   however many filters are on. */
 .chips {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 2px;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
 }
 .chip {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* Never squeezed by the row: the row scrolls instead. */
+  flex: 0 0 auto;
   padding: 2px 4px 2px 2px;
   border: 1px solid var(--accent);
   border-radius: 999px;
@@ -503,8 +546,13 @@ body {
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--bg);
-  cursor: crosshair;
+  cursor: pointer;
   overflow: hidden;
+}
+/* With medoids on, only a spine can be picked, so the cursor stops promising a
+   hit everywhere else. */
+.stacked__surface[data-picking="true"][data-on-target="false"] {
+  cursor: default;
 }
 .stacked__readout {
   display: flex;
@@ -1221,7 +1269,7 @@ body {
   border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
-  cursor: crosshair;
+  cursor: pointer;
 }
 
 .chart__canvas,
@@ -1252,6 +1300,13 @@ body {
   font-size: 10px;
   font-family: ui-monospace, monospace;
   opacity: 0.75;
+  /* Knocked out of the background, because the box plot's whiskers now run the
+     full width of the rule this label sits on and would otherwise strike
+     through it wherever a cohort reaches back to the left edge. */
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 
 .chart__decade-line {
@@ -1288,6 +1343,10 @@ body {
   font-family: ui-monospace, monospace;
   opacity: 0.7;
   dominant-baseline: middle;
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
 }
 
 .chart__highlight-halo {
@@ -1384,12 +1443,16 @@ body {
   align-items: center;
   gap: 3px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The clipping moved here from the wrapper: the dots' panel is a child of that
+   wrapper, and `overflow: hidden` on an ancestor cuts an absolutely positioned
+   box off at the card's edge. Only the text needs to be truncated anyway. */
 .multiples__steps {
   margin-left: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .multiples__size {
   margin-left: auto;
@@ -1402,7 +1465,7 @@ body {
   border-bottom: 1px dotted var(--muted);
 }
 .multiples__panel[data-spine="true"] {
-  cursor: crosshair;
+  cursor: pointer;
 }
 .multiples__more {
   margin: 0;
@@ -1415,10 +1478,57 @@ body {
 /* One dot per step, repeats included — a typology's shape at a glance, shared
    by the small-multiple cards and the chip that says which one is open. */
 .dots {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 3px;
   flex: 0 0 auto;
+}
+/*
+ * Out of flow, above the run. Inline, a spelled-out sequence is long enough to
+ * shove every stat beside it off its own line — and inside a small-multiple card
+ * there is no line to shove it onto at all.
+ */
+.dots__panel {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 100%;
+  max-width: 34ch;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: 0 4px 16px hsl(230 30% 4% / 0.55);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-align: left;
+  pointer-events: none;
+}
+/* One step per line, in that step's own colour, so the run reads down the list
+   and every name ties back to its dot and its rule. */
+.dots__entry {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.dots__step {
+  min-width: 1.4em;
+  text-align: right;
+  color: var(--muted);
+}
+.dots__hint {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  white-space: normal;
 }
 .dots__swatch {
   width: 6px;
@@ -1432,37 +1542,12 @@ body {
   transform: translateY(-3px);
 }
 
-/* The chip spells itself out only when the pointer rests on it, so the common
-   case costs a few dozen pixels of the stats line instead of a whole key. */
-.chip {
-  position: relative;
+/* Its own name, not `.chip`: that one is the filter pill in the side column,
+   and two rules under one class had each half-applying to the other. */
+.chart__stats-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-/* Out of flow, on purpose. Inline, the key is long enough to push every stat
-   beside it sideways, so resting on the chip shoved the readout you were
-   looking at off its own line. */
-.chip__text {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  z-index: 5;
-  max-width: 60ch;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  box-shadow: 0 4px 14px hsl(230 30% 4% / 0.5);
-  color: var(--text);
-  font-family: ui-monospace, monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-}
-.chip__clear {
-  opacity: 0.7;
 }
 .chart__stats-hover {
   color: var(--accent);
@@ -1745,4 +1830,503 @@ body {
   font-size: 11px;
   display: flex;
   align-items: center;
+}
+
+/* ---------- sankey ---------- */
+
+/*
+ * The keyed wrapper each main view mounts in. It has to carry the flex chain
+ * `.chart` relies on — a plain div in between collapses the surface to its
+ * content and it measures about nothing — and its fade is opacity only, with
+ * a backwards fill, so nothing inside ever measures itself against a moving box.
+ */
+.app__view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  animation: view-in 220ms ease-out backwards;
+}
+@keyframes view-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* A control is one line: the Order group's "By state" wrapped onto two. */
+.controls__group .button {
+  white-space: nowrap;
+}
+
+.sankey {
+  /* The tooltip is placed against this, outside the scroller, so scrolling
+     the flow never drags it off the pointer. */
+  position: relative;
+}
+.sankey__surface {
+  overflow: auto;
+  /* A scrollbar that appears would change the measured size and relayout the
+     flow, which could make it disappear again. */
+  scrollbar-gutter: stable;
+  cursor: default;
+}
+.sankey__surface:has(.sankey__svg:focus-visible) {
+  border-color: var(--accent);
+}
+.sankey__svg {
+  display: block;
+  outline: none;
+}
+.sankey__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--muted);
+}
+
+.sankey__link,
+.sankey__node,
+.sankey__tail {
+  cursor: pointer;
+}
+/* Leaving during a move: their keys belong to the previous graph. */
+.sankey__link--exiting,
+.sankey__node--exiting {
+  pointer-events: none;
+}
+.sankey__tail-stop {
+  stop-color: var(--muted);
+  stop-opacity: 0.7;
+}
+.sankey__tail-stop--end {
+  stop-opacity: 0;
+}
+
+/* One opacity per group, never per ribbon: the base does not re-render to dim. */
+.sankey__links,
+.sankey__ends,
+.sankey__nodes,
+.sankey__lit {
+  transition: opacity 120ms ease-out;
+}
+/* The duration filter: what it keeps is lit over a ghost of the rest. */
+.sankey__svg[data-filtering="true"] .sankey__links {
+  opacity: 0.35;
+}
+/* Tracing: the flow steps back; the trace, the outlines and the names do not. */
+.sankey__svg[data-tracing="true"] .sankey__links,
+.sankey__svg[data-tracing="true"] .sankey__ends,
+.sankey__svg[data-tracing="true"] .sankey__lit {
+  opacity: 0.22;
+}
+.sankey__svg[data-tracing="true"] .sankey__nodes {
+  opacity: 0.35;
+}
+
+/* Drawn over the hit targets, so never hit themselves — or hover flickers. */
+.sankey__overlay,
+.sankey__labels,
+.sankey__columns {
+  pointer-events: none;
+}
+/* A path asked about from outside the chart — a typology card, a patient in the
+   sidebar — is a highlight over the flow, not a repaint of it: the states it
+   runs through still show through. */
+.sankey__trace[data-tone="accent"] > path,
+.sankey__trace[data-tone="accent"] > rect:not(.sankey__trace-tail) {
+  fill: var(--accent);
+  fill-opacity: 0.6;
+}
+.sankey__mark {
+  fill: none;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.sankey__mark[data-role="pinned"] {
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+.sankey__mark[data-role="compare"],
+.sankey__mark[data-role="hovered"] {
+  stroke: var(--accent);
+}
+
+.sankey__label {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  dominant-baseline: middle;
+  opacity: 0.9;
+  /* The row labels' knockout: a name crosses the ribbons leaving its node. */
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.sankey__column {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+}
+.sankey__column-step {
+  fill: var(--text);
+}
+.sankey__column-count {
+  fill: var(--muted);
+}
+
+/* The `.dots__panel` look, placed by the chart rather than by CSS. */
+.sankey__tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 64ch;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: 0 4px 16px hsl(230 30% 4% / 0.55);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+}
+.sankey__tip[data-visible="true"] {
+  visibility: visible;
+}
+.sankey__tip-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sankey__tip-line[data-kind="title"] {
+  font-weight: 600;
+}
+.sankey__tip-line[data-kind="head"] {
+  margin-top: 3px;
+}
+.sankey__tip-line[data-kind="entry"] {
+  padding-left: 1.4em;
+}
+.sankey__tip-muted {
+  color: var(--muted);
+}
+.sankey__live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/*
+ * Fixed, because every pixel of it comes out of the flow above — and fixed at
+ * what a pinned node's full column needs (header, metrics, two stat rows,
+ * scopes, actions), so pinning never reflows the Sankey. The header runs the
+ * full width — a flow's name and counts are long — and the words sit left of
+ * the distribution.
+ */
+.sankey__detail {
+  flex: 0 0 164px;
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 4px;
+  min-height: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+.sankey__detail-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 20px;
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.sankey__detail-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sankey__hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.sankey__detail-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+}
+.sankey__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 3px;
+}
+.sankey__scopes,
+.sankey__actions {
+  display: flex;
+  gap: 3px;
+}
+.sankey__stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.sankey__stat[data-role="pinned"] {
+  color: var(--text);
+}
+.sankey__stat[data-role="hovered"],
+.sankey__stat[data-role="compare"] {
+  color: var(--accent);
+}
+.sankey__stat-swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 2px;
+  background: currentColor;
+}
+.sankey__stat-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sankey__stat-clear {
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.sankey__stat-clear:hover {
+  color: var(--text);
+}
+
+.sankey__dist {
+  min-width: 0;
+  min-height: 0;
+}
+.sankey__dist svg {
+  display: block;
+  overflow: visible;
+}
+.sankey__dist-axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.sankey__dist-grid {
+  stroke: var(--line);
+  stroke-dasharray: 2 2;
+  opacity: 0.6;
+}
+.sankey__dist-tick,
+.sankey__dist-caption,
+.sankey__dist-legend,
+.sankey__dist-readout {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+}
+.sankey__dist-readout {
+  white-space: pre;
+}
+.sankey__dist-ghost {
+  fill: var(--muted);
+  opacity: 0.22;
+}
+.sankey__dist-curve {
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+  fill-opacity: 0.15;
+}
+.sankey__dist-curve[data-role="pinned"] {
+  stroke: var(--text);
+  fill: var(--text);
+}
+.sankey__dist-curve[data-role="hovered"] {
+  stroke: var(--accent);
+  fill: var(--accent);
+}
+.sankey__dist-curve[data-role="compare"] {
+  stroke: var(--accent);
+  fill: none;
+}
+.sankey__dist-median {
+  stroke-width: 2;
+  stroke: var(--accent);
+}
+.sankey__dist-median[data-role="pinned"] {
+  stroke: var(--text);
+}
+.sankey__dist-median[data-role="ghost"] {
+  stroke: var(--muted);
+}
+.sankey__dist-band {
+  fill: var(--accent);
+  opacity: 0.08;
+}
+.sankey__dist-probe {
+  stroke: var(--accent);
+  stroke-width: 0.75;
+}
+.sankey__dist-reading {
+  fill: var(--accent);
+}
+.sankey__dist-reading[data-role="pinned"] {
+  fill: var(--text);
+}
+.sankey__dist-reading[data-role="ghost"] {
+  fill: var(--muted);
+}
+
+.sankey__stats {
+  align-items: center;
+}
+.sankey__history {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app__view {
+    animation: none;
+  }
+  .sankey__links,
+  .sankey__ends,
+  .sankey__nodes,
+  .sankey__lit {
+    transition: none;
+  }
+}
+
+/* ---------- view switcher ---------- */
+
+/*
+ * The whole thumbnail is one button: nothing inside it takes focus or the
+ * pointer, so the picture is the target. Focus and hover show on the frame,
+ * the same accent the chart surface takes when the Sankey has focus.
+ */
+.viewswitch__mini {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.viewswitch__mini:focus-visible {
+  outline: none;
+}
+.viewswitch__frame {
+  position: relative;
+  display: block;
+  height: 150px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  overflow: hidden;
+  transition: border-color 120ms ease-out;
+  animation: view-in 220ms ease-out backwards;
+}
+.viewswitch__frame * {
+  pointer-events: none;
+}
+.viewswitch__mini:hover .viewswitch__frame,
+.viewswitch__mini:focus-visible .viewswitch__frame {
+  border-color: var(--accent);
+}
+.viewswitch__canvas canvas,
+.viewswitch__sankey {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.viewswitch__canvas {
+  height: 100%;
+  padding: 6px;
+  box-sizing: border-box;
+}
+.viewswitch__swap {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: hsl(230 20% 10%);
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.viewswitch__mini:hover .viewswitch__swap,
+.viewswitch__mini:focus-visible .viewswitch__swap {
+  opacity: 1;
+}
+.viewswitch__caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.viewswitch__caption > span:not(.dots) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.viewswitch__caption b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewswitch__frame {
+    animation: none;
+    transition: none;
+  }
+  .viewswitch__swap {
+    transition: none;
+  }
 }

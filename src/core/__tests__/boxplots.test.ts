@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { buildStore } from "../model/build.ts"
-import { buildStateStats } from "../render/boxplots.ts"
+import { buildStateStats, buildStepStats } from "../render/boxplots.ts"
 import { quantile } from "../render/ribbons.ts"
 import type { PatientRecord } from "../types.ts"
 
@@ -143,5 +143,73 @@ describe("state box plot stats", () => {
   it("returns nothing for an empty selection", () => {
     const store = buildStore(ladder(4))
     expect(buildStateStats(store, new Uint8Array(store.patientCount), "age")).toEqual([])
+  })
+})
+
+/**
+ * The reading the focused chart is for: a sequence that comes back to a state
+ * reaches it at two different times, and the rule for each visit has to say so.
+ */
+describe("per-step box plot stats", () => {
+  /** Three patients on a → b → a, the second visit to `b`'s state ten years on. */
+  const returning: PatientRecord[] = [0, 1, 2].map((i) => ({
+    id: `p_${i}`,
+    trajectory: ["a", "b", "a"],
+    switchEventAge: [20 + i, 30 + i, 50 + i],
+    years: [2000 + i, 2010 + i, 2030 + i],
+    diseaseDuration: 20,
+  }))
+
+  it("keeps the two visits to one state apart", () => {
+    const store = buildStore(returning)
+    const stats = buildStepStats(store, Uint32Array.of(0, 1, 2), 3, "age")
+
+    expect(stats).toHaveLength(3)
+    // Both ends are the same *state*, and that is exactly the point: the glyph
+    // on row 0 must not be the glyph on row 2.
+    expect(stats[0]?.state).toBe(byName(store, "a"))
+    expect(stats[2]?.state).toBe(byName(store, "a"))
+
+    expect([stats[0]?.min, stats[0]?.max]).toEqual([20, 22])
+    expect([stats[2]?.min, stats[2]?.max]).toEqual([50, 52])
+
+    // What `buildStateStats` would have put on both of them.
+    const pooled = buildStateStats(store, null, "age").find(
+      (entry) => entry.state === byName(store, "a"),
+    )
+    expect([pooled?.min, pooled?.max]).toEqual([20, 52])
+  })
+
+  it("summarises only the patients it is handed", () => {
+    const store = buildStore(returning)
+    const one = buildStepStats(store, Uint32Array.of(1), 3, "age")
+
+    expect(one[1]?.count).toBe(1)
+    expect([one[1]?.min, one[1]?.median, one[1]?.max]).toEqual([31, 31, 31])
+  })
+
+  it("reports the median of a step, interpolating between visits", () => {
+    const store = buildStore(ladder(9)) // step 1 at ages 30..38
+    const stats = buildStepStats(
+      store,
+      Uint32Array.from({ length: 9 }, (_, i) => i),
+      3,
+      "age",
+    )
+
+    expect(stats[1]?.count).toBe(9)
+    expect(stats[1]?.median).toBeCloseTo(34, 1)
+  })
+
+  it("leaves a step no drawn patient reaches empty", () => {
+    const store = buildStore(returning)
+    // Four rows over a three-step sequence: nothing walks that far.
+    expect(buildStepStats(store, Uint32Array.of(0), 4, "age")[3]).toBeNull()
+  })
+
+  it("follows the axis it is asked for", () => {
+    const store = buildStore(returning)
+    const years = buildStepStats(store, Uint32Array.of(0, 1, 2), 3, "year")
+    expect([years[2]?.min, years[2]?.max]).toEqual([2030, 2032])
   })
 })

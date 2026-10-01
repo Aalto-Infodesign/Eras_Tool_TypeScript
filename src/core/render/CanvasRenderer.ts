@@ -18,6 +18,7 @@ export class CanvasRenderer implements TrajectoryRenderer {
   private geometry: Geometry | null = null
   private overlay: Geometry | null = null
   private highlight: Geometry | null = null
+  private focus: Geometry | null = null
   private dpr = 1
   private width = 1
   private height = 1
@@ -57,6 +58,10 @@ export class CanvasRenderer implements TrajectoryRenderer {
     this.highlight = geometry
   }
 
+  setFocusGeometry(geometry: Geometry | null): void {
+    this.focus = geometry
+  }
+
   draw(view: ViewState): void {
     const { ctx } = this
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -72,7 +77,9 @@ export class CanvasRenderer implements TrajectoryRenderer {
       this.paint(this.highlight, view, view.highlightOpacity, view.lineWidth, 0)
     }
     // Canvas2D gets spine thickness for free — unlike WebGL, `lineWidth` works.
-    this.paint(this.overlay, view, view.overlayOpacity, view.overlayWidth, 0)
+    this.paint(this.overlay, view, view.overlayOpacity, view.overlayWidth, view.overlayFade)
+    // The one being pointed at, over a layer the same frame has pushed back.
+    this.paint(this.focus, view, view.overlayOpacity, view.overlayWidth, 0)
   }
 
   private paint(
@@ -107,5 +114,6 @@ export class CanvasRenderer implements TrajectoryRenderer {
     this.geometry = null
     this.overlay = null
     this.highlight = null
+    this.focus = null
   }
 }

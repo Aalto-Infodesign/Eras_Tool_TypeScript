@@ -184,6 +184,11 @@ export class WebGLRenderer implements TrajectoryRenderer {
   private readonly highlightColorBuffer: WebGLBuffer
   private highlightVertexCount = 0
 
+  private readonly focusVao: WebGLVertexArrayObject
+  private readonly focusPositionBuffer: WebGLBuffer
+  private readonly focusColorBuffer: WebGLBuffer
+  private focusVertexCount = 0
+
   private vertexCount = 0
   private dpr = 1
 
@@ -231,6 +236,9 @@ export class WebGLRenderer implements TrajectoryRenderer {
     const highlightVao = gl.createVertexArray()
     const highlightPositionBuffer = gl.createBuffer()
     const highlightColorBuffer = gl.createBuffer()
+    const focusVao = gl.createVertexArray()
+    const focusPositionBuffer = gl.createBuffer()
+    const focusColorBuffer = gl.createBuffer()
     if (
       vao === null ||
       pickVao === null ||
@@ -241,7 +249,10 @@ export class WebGLRenderer implements TrajectoryRenderer {
       overlayPositionBuffer === null ||
       overlayColorBuffer === null ||
       highlightPositionBuffer === null ||
-      highlightColorBuffer === null
+      highlightColorBuffer === null ||
+      focusVao === null ||
+      focusPositionBuffer === null ||
+      focusColorBuffer === null
     ) {
       throw new RendererError("Could not allocate WebGL buffers")
     }
@@ -255,6 +266,9 @@ export class WebGLRenderer implements TrajectoryRenderer {
     this.highlightVao = highlightVao
     this.highlightPositionBuffer = highlightPositionBuffer
     this.highlightColorBuffer = highlightColorBuffer
+    this.focusVao = focusVao
+    this.focusPositionBuffer = focusPositionBuffer
+    this.focusColorBuffer = focusColorBuffer
 
     const positionLocation = gl.getAttribLocation(this.program, "aPosition")
     const colorLocation = gl.getAttribLocation(this.program, "aColor")
@@ -281,6 +295,14 @@ export class WebGLRenderer implements TrajectoryRenderer {
     gl.enableVertexAttribArray(positionLocation)
     gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
     gl.bindBuffer(gl.ARRAY_BUFFER, highlightColorBuffer)
+    gl.enableVertexAttribArray(colorLocation)
+    gl.vertexAttribPointer(colorLocation, 4, gl.UNSIGNED_BYTE, true, 0, 0)
+
+    gl.bindVertexArray(focusVao)
+    gl.bindBuffer(gl.ARRAY_BUFFER, focusPositionBuffer)
+    gl.enableVertexAttribArray(positionLocation)
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
+    gl.bindBuffer(gl.ARRAY_BUFFER, focusColorBuffer)
     gl.enableVertexAttribArray(colorLocation)
     gl.vertexAttribPointer(colorLocation, 4, gl.UNSIGNED_BYTE, true, 0, 0)
 
@@ -367,6 +389,10 @@ export class WebGLRenderer implements TrajectoryRenderer {
     )
   }
 
+  setFocusGeometry(geometry: Geometry | null): void {
+    this.focusVertexCount = this.upload(geometry, this.focusPositionBuffer, this.focusColorBuffer)
+  }
+
   private upload(
     geometry: Geometry | null,
     positions: WebGLBuffer,
@@ -421,12 +447,17 @@ export class WebGLRenderer implements TrajectoryRenderer {
       gl.drawArrays(gl.LINES, 0, this.highlightVertexCount)
     }
 
-    // Spine layer: repeated at sub-pixel offsets to reach the requested width.
-    if (this.overlayVertexCount > 0 && view.overlayOpacity > 0) {
-      gl.bindVertexArray(this.overlayVao)
+    /*
+     * Spine layers, repeated at sub-pixel offsets to reach the requested width:
+     * every spine, then the one under the cursor again on top of them. The first
+     * carries `overlayFade` so the second has something to stand out against —
+     * they share a buffer, so nothing inside one draw call could tell them apart.
+     */
+    const spines = (count: number, fade: number): void => {
+      if (count === 0 || view.overlayOpacity <= 0) return
+
       gl.uniform1f(uniforms.opacity, view.overlayOpacity)
-      // The overlay is the thing being looked at; it never fades.
-      gl.uniform1f(uniforms.fade, 0)
+      gl.uniform1f(uniforms.fade, fade)
 
       const passes = Math.max(
         1,
@@ -435,9 +466,15 @@ export class WebGLRenderer implements TrajectoryRenderer {
       for (let i = 0; i < passes; i++) {
         const [dx, dy] = SPINE_OFFSETS[i] as readonly [number, number]
         gl.uniform2f(uniforms.offset, dx * this.dpr, dy * this.dpr)
-        gl.drawArrays(gl.LINES, 0, this.overlayVertexCount)
+        gl.drawArrays(gl.LINES, 0, count)
       }
     }
+
+    gl.bindVertexArray(this.overlayVao)
+    spines(this.overlayVertexCount, view.overlayFade)
+
+    gl.bindVertexArray(this.focusVao)
+    spines(this.focusVertexCount, 0)
 
     gl.bindVertexArray(null)
   }
@@ -559,10 +596,13 @@ export class WebGLRenderer implements TrajectoryRenderer {
     gl.deleteBuffer(this.overlayColorBuffer)
     gl.deleteBuffer(this.highlightPositionBuffer)
     gl.deleteBuffer(this.highlightColorBuffer)
+    gl.deleteBuffer(this.focusPositionBuffer)
+    gl.deleteBuffer(this.focusColorBuffer)
     gl.deleteVertexArray(this.vao)
     gl.deleteVertexArray(this.pickVao)
     gl.deleteVertexArray(this.overlayVao)
     gl.deleteVertexArray(this.highlightVao)
+    gl.deleteVertexArray(this.focusVao)
     gl.deleteProgram(this.program)
     gl.deleteProgram(this.pickProgram)
     if (this.pickTexture !== null) gl.deleteTexture(this.pickTexture)

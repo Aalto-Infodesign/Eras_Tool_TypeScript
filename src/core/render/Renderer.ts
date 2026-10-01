@@ -31,6 +31,18 @@ export interface ViewState {
   /** Spine width in CSS pixels. */
   readonly overlayWidth: number
   /**
+   * How far the spines that are *not* being pointed at mix toward the
+   * background. `0` leaves every spine at `overlayOpacity`.
+   *
+   * Dimming the hairlines alone was enough when there were far more of them than
+   * spines. It is not when a typology has many clusters and few members: the
+   * field that recedes is thin, and a thousand spines at full strength drown the
+   * one being asked about. Fade rather than alpha for the usual reason — these
+   * cross each other, and stacked alpha would make the crossings the brightest
+   * thing on a layer that is meant to be receding.
+   */
+  readonly overlayFade: number
+  /**
    * Alpha for the highlight layer — the members of the cluster under the
    * cursor. `0` skips the pass.
    *
@@ -74,6 +86,15 @@ export interface TrajectoryRenderer {
    * intent: they are still part of the field, just the part being named.
    */
   setHighlightGeometry(geometry: Geometry | null): void
+  /**
+   * The top of the stack: the single spine under the cursor.
+   *
+   * One trajectory, so it costs nothing to keep current, and it is the only way
+   * to hold one spine at full strength while `overlayFade` pushes the rest of
+   * the layer back — they share a buffer, and nothing in a draw call can tell
+   * one line in it from another.
+   */
+  setFocusGeometry(geometry: Geometry | null): void
   draw(view: ViewState): void
   /**
    * Segment index under a CSS-pixel position, or `null`.

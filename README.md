@@ -1,9 +1,10 @@
 # ERAS — TypeScript / Vite refactor
 
 An incremental rewrite of the ERAS tool, starting from file loading and the main
-trajectories chart. The goal is not feature parity — it is to find out how far
-the lag on large datasets can be pushed back, and to build the foundation the
-rest of the port can move onto.
+trajectories chart, and since grown to the Sankey overview it now opens on. The
+goal is not feature parity — it is to find out how far the lag on large datasets
+can be pushed back, and to build the foundation the rest of the port can move
+onto.
 
 ```bash
 npm install
@@ -213,9 +214,9 @@ their own.
 The three data layers are **toggles, not a choice**, and each is built only while
 it is on. See *Stacking the layers*.
 - **State box plots.** One range-and-median glyph per row: a bar spanning the
-  selection's earliest→latest arrival at that state with a tick at its median,
-  and whiskers running out to where the *unnarrowed* population reaches. See
-  below — this is the layer the rewrite had been missing.
+  drawn patients' earliest→latest arrival at that *step*, with a tick at its
+  median, and whiskers running out to where the whole cohort reaches that state.
+  See below.
 
 ### Lumps
 
@@ -329,6 +330,16 @@ members out at `HIGHLIGHT_OPACITY` while everything else drops to `DIM_FADE`
 happens to sit. Clicking does what it always did: isolates the cluster, scopes
 the hairlines to its members and reveals its row in the table.
 
+**The spines dim too, not only the field.** Dimming the hairlines alone was
+enough while there were far more of them than spines; it is not when a typology
+has many clusters and few members, where what recedes is thin and a wall of
+spines at full strength buries the one being asked about. They share a buffer,
+so nothing inside one draw call can tell them apart — hence a fourth slot
+holding the single spine under the cursor, drawn after the layer that
+`overlayFade` has pushed back. It fades less far than the field does: the field
+is context and can go most of the way out, where the other spines are the
+population this one belongs to and have to stay countable.
+
 The members are a **third renderer slot** rather than a rebuilt bulk. The bulk is
 megabytes that change when the data does; this is a few hundred lines that change
 when the pointer does, and re-uploading the former to raise the latter would make
@@ -412,16 +423,21 @@ stores it:
 | exactly one | that typology alone, on *its own steps* — a rule per visit |
 | anything else | one panel each, as small multiples |
 
-With nothing selected the grid shows the biggest few, which is what the app opens
-on: a screen of shapes to choose from rather than a hairball to filter down.
+With nothing selected the grid shows the biggest few, which is what the
+Trajectories view shows before anything is picked: a screen of shapes to choose
+from rather than a hairball to filter down. The original opened on that hairball,
+its trajectories chart; this app now opens one step further out, on the Sankey
+(see *The Sankey*).
 
 Overlaying several typologies in a single frame used to be the middle case, and
 it was the weakest reading in the app: they shared rows, so the paths crossed and
 the slope of any one of them — the thing being compared — was lost in the others.
 The grid answers that question properly, so the overlay is left to do the one
-thing it is good at. There is no view toggle; the selection already says which
-question is being asked, and a stored copy of that is a second source of truth
-that drifts.
+thing it is good at. Multiples versus single has no toggle; the selection already
+says which question is being asked, and a stored copy of that is a second source
+of truth that drifts. The Sankey/Trajectories switch is a different thing: it
+picks a *kind* of chart, which the selection cannot say, so the store holds it
+(`view`) — and inside the Trajectories view the selection still decides.
 
 Two things went with it. The typology cards' **"order rows by this shape"**
 button, and the **reordering in the states panel** — both existed to bend one
@@ -431,7 +447,8 @@ does that exactly, per sequence, with no compromise. The states panel keeps
 membership: take a state out of the dataset, or put it back.
 
 The global view loses the ability to be arranged, which is a real loss. A Sankey,
-as in the original, is the right answer for that and is not built yet.
+as in the original, is the right answer for that, and it is now built — see
+*The Sankey*.
 
 #### Three layers, three clocks
 
@@ -463,6 +480,15 @@ for is the question you have to hold still for. The members then fade on the
 same curve as the hairline canvas behind them, one through `useAnimatedScalar`
 and one through a CSS transition, which is affordable here for the same reason
 the hover is: a frame repaints the cheap layer and never the field.
+
+Each card's colour run spells itself out on rest — one name per line, in that
+step's own colour, so the sequence is legible at a glance rather than parsed out
+of a run-on string, and each name ties back to its dot and its rule. It is the
+same `StateDots` panel the stats-line chip uses, which is what keeps the card you
+clicked and the chip saying where you are recognisably the same object. It
+replaced the `title` the dots used to carry: a native tooltip appears *under the
+pointer*, which is exactly where the panel is, so the browser covered the thing
+being revealed with a worse version of it.
 
 Spines are thinner here than in the single chart (1.4px against 2.5px) for the
 same reason the panels are smaller — at a quarter of the width, a 2.5px line is
@@ -544,8 +570,7 @@ stretched one — spreading a short sequence over the same height would make it
 read as the shallowest path on screen when it may be the steepest.
 
 Clicking a panel selects that typology alone, which by the table above is the
-full-size chart on its own steps. The box plots hide there: they answer a
-per-state question that positions do not have.
+full-size chart on its own steps.
 
 The cluster selection is **scoped to the focused typology** in the render path,
 not only cleared in the store when the typology changes. A cluster is a group
@@ -714,10 +739,26 @@ Five things the original got right, rebuilt:
   track and the chip all flip with it, so the lit part is always the part that
   survives. `duration` could not be inverted before; it can now.
 - **Chips that remember.** Every active range becomes a chip carrying its two
-  verbs — invert and drop — with a count badge in the panel header, so a
-  collapsed panel still says what is cutting the data.
+  verbs — invert and drop. They live in `Panel`'s **summary slot**, which sits
+  between the header and the fold and survives it, so a collapsed Filters panel
+  still says what is cutting the data rather than only that something is: the
+  count in the header reports that the selection shrank, not what shrank it. One
+  row that scrolls sideways rather than a wrapping block, so folding the panel
+  away buys back a fixed amount of column however many filters are on.
 
-Plus the stacked-lines diagram: one horizontal line per patient from the start of
+Plus the stacked-lines diagram, which now reads in the **same hierarchy as the
+chart**: the field is context, the medoids are the summary of it, and resting on
+one lifts its members out while everything else steps back. Only medoids are
+pickable, for the reason the chart gives — picking one hairline out of a quarter
+of a million answers with whichever row the pointer landed on, where picking a
+medoid names a group. The pointer *snaps* to the nearest one within a few pixels,
+because a medoid row is a single pixel and nobody can aim at it, and clicking
+opens that typology with the cluster isolated. It writes the same `hoveredCluster`
+the chart's own hover writes, so pointing at a spine in the filter panel lifts
+that cluster out of both views at once. Turn the Medoids layer off and it goes
+back to being a preview of every individual, every one of them selectable.
+
+It is one horizontal line per patient from the start of
 their trajectory to the end, stacked and sortable by either end or by disease
 duration. It answers what the main chart deliberately cannot — the chart stacks
 patients by *state*, so it says nothing about how the cohort sits in time. Sorted
@@ -941,13 +982,35 @@ keyboard-reachable, which a drag handle alone never is.
 
 ### The box plots, and why the quantiles are a histogram
 
-The glyph puts the selection *inside* the population it was drawn from: narrowing
-a filter grows the whiskers rather than silently rescaling the bar, so what you
-excluded stays on screen. With nothing narrowed the two coincide and the whiskers
-vanish, as in the original. That needs two masks, so `recompute` runs the filter
-scan twice — `population` stops at the filters describing who is in the study
-(age, calendar span, disease duration), `selection` goes on to apply the
+The glyph puts what is drawn *inside* the cohort it was drawn from: a typology
+that reaches `c` unusually late says so against everyone else who ever reached
+`c`, rather than silently rescaling to itself. Isolate a cluster and the bars
+narrow to it while the reference behind them does not move, which is the same
+reading one level further in. That needs two masks, so `recompute` runs the
+filter scan twice — `population` stops at the filters describing who is in the
+study (age, calendar span, disease duration), `selection` goes on to apply the
 per-segment duration filter and any chosen typologies.
+
+**Per step, not per state.** This layer had silently stopped rendering: its gate
+was `!byPosition`, and once every single-typology chart became a ladder of steps
+that was never true again. Restoring it needed more than deleting the gate,
+because `buildStateStats` pools every visit to a state into one datum — a
+sequence that returns to `b` would get the identical glyph on both of its `b`
+rules, which says the opposite of what the ladder exists to show.
+`buildStepStats` indexes by step instead, so the two visits carry their own
+timings. The reference behind them stays per *state*, which is the right
+asymmetry: the question is when this sequence's second visit happens compared
+with everyone's visits to that state.
+
+The extent labels moved **below** the rule, where the row's own label sits above
+it. They used to share the centre line, which was fine while a row was a state
+and its label lived in the margin; on a ladder the label is on the rule itself,
+and a bar reaching the left edge put its `42y` straight through the state's name.
+Splitting them by height is the only arrangement that cannot collide whatever the
+domain does, and the row label is knocked out of the background so a whisker
+running the full width does not strike through it. Below a row pitch of
+`MIN_PITCH_FOR_LABELS` the glyph keeps the bar and drops the text, which is the
+same threshold at which two rows' labels would start to meet.
 
 Faithful down to a quirk: the original computes a five-number summary and then
 draws its bar from `min` to `max`, never using `q1`/`q3`. It is a range-and-median
@@ -977,6 +1040,240 @@ between the two ranks straddling the target, matching the convention the ribbons
 standard, but it reports the median of two visits as the earlier of them, and a
 tick drawn *between* them should not mean that. A test asserts the two layers
 agree.
+
+---
+
+## The Sankey
+
+The second main view, and now the one the app opens on: the port of the
+original's `PartialOrderChart` (drawn by `OptimizedSankey`, with a
+`DurationDistributionChart` under it). A column per step, a node per state at
+that step, a ribbon per consecutive pair — `core/stats/sankey.ts` builds the
+graph, `core/render/sankeyLayout.ts` places it, `ui/SankeyChart.tsx` reads it.
+
+### The poset was a no-op
+
+The original reached its links the long way round. It labelled every state of
+every silhouette with its position, `${state}-${i}`, and handed the consecutive
+pairs to PO.js for a transitive closure (Floyd–Warshall, O(n³)) and then a
+transitive reduction (O(n³) again). But every edge runs from step k to k + 1,
+and two chained edges reach k + 2, where no single edge goes — so no edge is
+ever implied by the others, the reduction removes nothing, and the poset *is*
+the set of distinct consecutive pairs. `buildSankey` builds that set directly.
+
+This is the **(state, position) poset in `PartialOrderChart`**, and it is
+trivial. The silhouette-containment Hasse diagram — `a-c` beneath `a-b-c` — is
+a different order and a real one, and it stays in *Not ported yet*.
+
+### Over typologies, not patients
+
+**A typology is an exact sequence, so all of its members cross exactly the same
+nodes and links.** The graph is each typology's live members
+(`filteredSizes(typologies, selection.mask)`) and then one pass over the live
+sequences; nothing on the way reads an event.
+
+| | 25k patients | 250k patients |
+|---|---|---|
+| typologies | 938 | 3,154 |
+| nodes / links | 49 / 238 | 54 / 123 |
+| count live members (`filteredSizes`) | 0.02 ms | 0.20 ms |
+| `buildSankey` | 0.25 ms | 0.36–0.75 ms |
+| layout · By state | ≈0.07 ms | ≈0.07 ms |
+| layout · Untangle | 0.77 ms | 0.30 ms |
+
+Node, median of 50 runs, laid out at 1000×600 with the main view's constants.
+Ten times the patients gives *fewer* flows: like the lumps, the graph is bounded
+by the vocabulary — states × steps — rather than by the cohort. The original's
+branch for "the selected silhouettes, else all" is gone too: `recompute` has
+already narrowed the mask to the chosen typologies.
+
+**Steps are true positions.** The original numbered a segment by its index
+among the segments that survived its filters, so a filter that dropped a middle
+segment moved everything after it into the wrong column — or out of the chart,
+when the shifted key matched no cover relation. Here a filter changes who is
+counted, never where they are.
+
+### SVG, in three layers
+
+Bounded by states × steps, the Sankey is tens of elements where the trajectories
+are millions, so it is SVG — the typology glyphs' trade, buying hit-testing and
+gradients for free — split like the WebGL chart into a bulk layer and a thin
+one. `SankeyBase` (ribbons, tails, nodes) is memoised on the graph and the
+layout alone, so a hover never re-renders a ribbon. `SankeyOverlay` (trace,
+outlines) is `pointer-events: none`: a hovered ribbon's own trace lands under
+the pointer, and one that took it would clear the hover, vanish and flicker in a
+loop. The labels go on top, so a trace never covers the names it runs through.
+
+Links are painted largest first, so thin flows sit on top of the thick ones they
+cross, and a ribbon under 4px gets a transparent 6px stroke to aim at. Every
+item — the `data-key` it is hit by, a pin, the hover, the tween — is named by
+identity, `n:step:state` or `l:step:source:target`, never by index: indices
+change on every rebuild, and the original, which held its pinned link by d3's
+`link.index`, ended up pointing at a different link after a filter.
+
+### Layout
+
+**Nothing is hidden for being small.** The original dropped every link under a
+pixel, beneath a TODO that said in capitals not to, while the nodes kept their
+height and the hidden links still counted in the hover numbers. Here a link is
+at least 1px and a node 2px, and the scale is the largest at which every column
+fits with those minimums — a bisection, since column height is monotone in the
+scale. If the minimums alone overflow, the padding closes to 2px; past that the
+content grows and the surface scrolls, at the scale the largest column sets, so
+widths still encode counts.
+
+**By state is the default order.** Each column follows the States panel, so a
+state keeps its rank at every step and a typology's path has the shape of its
+card — x the step, y the state's rank, as the glyph draws it. The original set
+no `nodeSort`, so where a state sat meant nothing from one column to the next.
+
+**Untangle** is the original's look, ported from d3-sankey's
+`computeNodeBreadths`. It earns its place — size-weighted crossings drop ≈3.5×
+on the 25k file and ≈4.6× on the 250k — but it re-sorts each column by
+position, so near-equal nodes swap under a small change of size, and a filter
+slider commits one of those every frame. So it keeps its column order through
+filter-driven rebuilds (`keepOrder`) and re-sorts only on a *move*: a new order,
+a new set of typologies, a removed state. Moves are also the only changes that
+tween, by key; a filter frame, a resize or a new file snaps, or the chart would
+trail a dragged handle for the whole drag.
+
+**Every name sits right of its node**, cut with an ellipsis at the next column —
+the last column's too, in a gutter sized to the longest name (capped at 16
+characters). On its left, in the gap the column before already writes into, two
+names met head on wherever a state sat at the same height in both:
+`gait_tremo…gait_tremor_problems`. Headers read `step 1` over the patient count,
+arabic as on every card, where the original used roman numerals.
+
+**◍ tails** mark where trajectories end: a short fade out of a node's right
+edge, in the muted colour rather than the state's — *ends* is one category
+whatever the state, and in the state's own colour a tail read as more of its
+flow. The original never showed who stopped: its closing self-links matched no
+cover relation and were dropped, and a single-state typology made no pairs.
+
+### Reading a flow
+
+**Hover traces a lineage, not a link.** Resting on a node or a flow draws every
+patient through it, upstream and downstream at once, while the rest steps back;
+the original lit the one link under the pointer. It goes through typologies —
+`typologiesThrough`, then `traceSankey` — so it never reads a patient.
+
+A trace is a **fraction of the drawn band**, not patients times the scale. With
+the main constants, 168 of the 25k file's 238 links sit at the 1px minimum (21
+of 123 at 250k), so a trace sized in patients would come out thinner than the
+link it traces. A trace that covers every drawn patient is not drawn at all: it
+dims nothing it does not cover, and hovering the card of the only typology on
+screen painted the whole chain over in one colour.
+
+The tooltips say who flows in and out. A node gives its share of the step, the
+top three states it came `← from` and goes `→ to`, and how many `◍ stop here`;
+the original's in-count was, past the first column, always everyone at the
+node. A flow gives both its readings — `48% of a at step 2 go on to b`,
+`31% of b at step 3 came from a` — and follows the pointer by a style write per
+frame, where the original debounced hover by 200 ms.
+
+Two traces come from **outside the chart**: the typology card under the pointer
+(`hoveredTypology`, what the original's dead `hoveredSilhouette` was for) and
+the typology of a patient hovered in the sidebar's stacked lines. They are a
+translucent accent highlight rather than the flows' colours — a question about
+one path, not a reading of this one.
+
+### Pinning, comparing, the distribution
+
+A click pins, shift-click pins a second item to **compare**, Esc lets go of the
+comparison and then the pin, and the keyboard does it all from one tab stop.
+Pinned is `--text` and hovered or compared `--accent`, on the flow and in the
+histogram, as in the Trajectories view. A pin the filters empty goes
+**dormant**: it keeps its name and its ✕, says
+`0 patients under the current filters`, and comes back when they widen.
+
+Under the flow sits a **detail strip fixed at 164px**, so pinning never reflows
+the Sankey: the item, a stats row per curve, its actions, and the distribution
+of one metric under the Filters panel's four labels, word for word — **Segment
+duration**, **Age**, **Calendar year**, **Disease duration**.
+
+Segment duration is the default, and that is a reading of the request worth
+stating. It asked for "a distribution chart of the disease durations"; what the
+original plotted was `speed` — the segment duration, the time between the two
+states ("Duration distribution from S to T"). That is the only one of the four
+that describes the transition itself, where disease duration is one number per
+patient over a whole trajectory; it is one click away.
+
+A grey **ghost** behind the curves is the same metric over everyone at that
+step — "is a → b slow?" needs "against what" — and y is each curve's share of
+its own patients. The curves are step histograms on round bin edges
+(`niceBins`), where the original's Catmull-Rom polygon overshot below zero and
+printed `0–0` for sub-year bins. The x domain holds while a pin does. The y
+scale follows the pinned curve and the step, and a comparison joins it only from
+20 patients up, smaller ones being clipped at the top: two patients are two bins
+at 50%, and letting them set the scale flattened a thousand-patient curve.
+
+### The duration filter, read per patient
+
+The duration filter keeps a patient if *any* of their segments is in range, and
+the Trajectories views drop the others as they draw. The Sankey does not: it is
+a reading of patients — true positions, conserved flow — and dropping a middle
+segment would break a trajectory between two columns. So the filter shows as
+each link's **lit share** (`linkSegmentsInRange`, computed only while it is on)
+over a ghost of the rest; the tooltip says `n of N within the duration filter`,
+and on Segment duration the distribution shades the band.
+
+### Drilling down
+
+**A node or a flow narrows to typologies, and that is lossless.** A typology's
+live members are exactly the patients it puts through every node and link on its
+path, so the typologies through an item select its patients and nobody else.
+The original selected patient ids. Here that would be `selectedPatients`, a
+per-patient SVG highlight drawn only in the single-typology chart, where a
+typology selection already narrows every view and shows in the cards' Selected
+tab.
+
+**Show only these N typologies** narrows every view, this one included.
+**Open in Trajectories →** (`drillDown`) narrows and swaps in one `set`, as
+`focusCluster` does — two calls would mount the Trajectories view on the old
+selection first. A pinned node asks which of its patients: **All** (the
+original's upstream button), **Continuing** (its downstream one) or **Stopping
+here**, which neither reached. On a first-step item "Show only" goes through
+`selectPath`, so the path explorer's breadcrumb describes the selection — but
+only while that is still a narrowing (nothing hand-picked, or extending the
+current path), since `selectPath` would otherwise bring back typologies the
+reader had left out. The original's union across nodes is not ported: its ids
+never reshaped its chart, while this one is drawn from the selection, so a union
+with what is on screen would change nothing.
+
+**Undo, because the chart narrows itself.** Every "Show only" erases the
+overview that prompted it, so the selection has a store-level history
+(`core/query/history.ts`): every action that changes it, from any panel, pushes
+the snapshot it replaced — no-ops skipped, 50 kept, cleared on a load or a
+reshape. ↶ and ↷ (or Cmd/Ctrl+Z) sit in the stats line, beside a
+`12 of 3,154 typologies ✕` chip that is the way back. The original's history
+lived inside its chart: lost on a view switch, blind to changes made elsewhere
+(the next union brought cleared ids back), and pushing entries that changed
+nothing.
+
+`focusCluster` now opens the Trajectories view too: the sidebar's medoid rows
+call it while they sit over the Sankey, which cannot show a cluster.
+
+### Switching views
+
+**The view is a kind of chart, so the store holds it.** Multiples versus single
+is still derived from the selection, inside the Trajectories view. Sankey versus
+Trajectories is a question the selection cannot answer, so `view` is stored,
+kept across loads and put back by reset. The original opened on its
+trajectories chart; this opens on the Sankey, so the reading runs overview
+first — Sankey, small multiples, one typology.
+
+The **View panel**, first in the sidebar, is the switch: one button holding a
+live miniature of the *inactive* view. The Trajectories mini is one Canvas2D of
+the grid's first six panels (the grid's own `panelTypologies`, so the two cannot
+disagree) or of the single typology — at most 200 strided lines a panel, the
+duration filter applied, and never a second WebGL context. The Sankey mini is
+the same graph laid out at a fixed 300×150 viewBox, so a sidebar scrollbar never
+relays it out. Keys **1** and **2** swap from anywhere, as in the original, and
+the ControlBar's **View** group says it in words; in the Sankey the bar holds
+only that and **Order**.
+
+Not done: the Sankey ignores an isolated cluster, it has no SVG export, and
+several pins cannot be gathered into one selection.
 
 ---
 
@@ -1205,10 +1502,12 @@ src/
   core/          no React, no DOM — testable and benchmarkable in Node
     parse/       delimited reader, dates, column detection, JSON, ingest
     model/       StateVocabulary, IdColumn, CSR builder, reshape, worker transfer
-    query/       Selection, allocation-free filters
-    stats/       state summaries + ordering, typology grouping, silhouettes, path trie
+    query/       Selection, allocation-free filters, selection history (undo/redo)
+    stats/       state summaries + ordering, typology grouping, silhouettes, path trie,
+                 Sankey graph
     cluster/     duration matrices, mean-shift, grid, run, exports (parked)
-    render/      scales, palette, geometry, lumps, box plots, WebGL2 / Canvas2D
+    render/      scales, palette, geometry, lumps, box plots, Sankey layout,
+                 WebGL2 / Canvas2D
     util/
   workers/       ingest + clustering (parked) workers, with run-id cancellation
   ai/            TypeSafe-assisted column mapping (opt-in, proxied)
@@ -1235,4 +1534,6 @@ fade-and-settle is gone).
 The Hasse diagram proper is the natural next one. The path explorer covers what
 that view was mostly *used* for, but not what it was: a partial order by
 subsequence containment is a different question from stepping forward, and it is
-still a group-by over `typologies` rather than new data.
+still a group-by over `typologies` rather than new data. (The poset behind the
+original's Sankey was a different, trivial one — see *The Sankey* — so porting
+that left this one where it was.)

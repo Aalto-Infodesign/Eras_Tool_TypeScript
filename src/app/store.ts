@@ -14,14 +14,25 @@ import {
   type NumericFilter,
 } from "../core/query/filters.ts"
 import { visibleExtent } from "../core/query/extent.ts"
+import {
+  emptyHistory,
+  pushHistory,
+  redo,
+  snapshotOf,
+  undo,
+  type SelectionHistory,
+  type SelectionSnapshot,
+} from "../core/query/history.ts"
 import { Selection } from "../core/query/Selection.ts"
 import { startsWithPath } from "../core/stats/pathTree.ts"
 import { buildDistributions, type FilterDistributions } from "../core/stats/distributions.ts"
+import { samePin, type SankeyMetric, type SankeyPin } from "../core/stats/sankey.ts"
 import { summariseStates } from "../core/stats/states.ts"
 import { buildTypologies } from "../core/stats/typologies.ts"
 import type { MappingCandidate } from "../core/parse/schema.ts"
 import type { RendererKind } from "../core/render/Renderer.ts"
 import type { XAxis } from "../core/render/geometry.ts"
+import type { SankeyOrder } from "../core/render/sankeyLayout.ts"
 import type { TrajectoryStore, Typology } from "../core/types.ts"
 import { Stopwatch, type Timing } from "../core/util/time.ts"
 import { ClusterClient } from "../workers/clusterClient.ts"
@@ -65,13 +76,30 @@ export type ChartLayer = "lines" | "lumps" | "medoids"
 export type LayerToggles = Readonly<Record<ChartLayer, boolean>>
 
 /**
+ * Which chart fills the main column.
+ *
+ * - **sankey** — every typology at once as a layered flow: the overview, and
+ *   what the app opens on.
+ * - **trajectories** — the typologies themselves, as small multiples or as one
+ *   typology on its own steps (see `chartModeOf`).
+ *
+ * A *kind* of chart, not a selection: which typologies are selected still
+ * decides multiples versus single inside the Trajectories view, and both views
+ * draw the same selection. The original opened on its trajectories chart; this
+ * opens on the Sankey so the reading goes overview first — Sankey, then small
+ * multiples, then a single typology.
+ */
+export type MainView = "sankey" | "trajectories"
+
+/**
  * How many typologies are selected decides how the chart reads, so nothing
  * stores it:
  *
  * - **exactly one** — that typology alone, on *its own steps* (a rule per visit,
  *   so a revisited state does not fold back).
  * - **anything else** — one panel per typology, as small multiples. With none
- *   selected that is the biggest few, which is the view the app opens on.
+ *   selected that is the biggest few, which is what the Trajectories view shows
+ *   before anything is picked.
  *
  * Overlaying several typologies in a single frame used to be the middle case
  * and was the weakest reading in the app: they shared rows, so the paths
@@ -186,6 +214,54 @@ interface ErasState {
    * and the selection it made does not.
    */
   pathPrefix: readonly number[]
+  /**
+   * Undo and redo over `selectedTypologies`, `pathPrefix` and
+   * `selectedClusters` — see `core/query/history.ts`.
+   *
+   * Every action that changes the selection pushes the one it replaced, because
+   * the Sankey is drawn from the selection: "Show only these" narrows the very
+   * chart it was clicked in, and without a way back a drill-down would erase the
+   * overview that prompted it. Cleared on load and on a reshape, where the keys
+   * it holds stop naming anything.
+   */
+  selectionHistory: SelectionHistory
+
+  /**
+   * Which chart fills the main column — see `MainView`.
+   *
+   * Kept across loads, unlike everything around it: it is how the user chose to
+   * look, not something a new file says anything about. `reset` puts it back.
+   */
+  view: MainView
+  /**
+   * How the Sankey orders each column. `state` by default — the States panel
+   * order, as every other reading in the app — see `SankeyOrder`.
+   */
+  sankeyOrder: SankeyOrder
+  /**
+   * What the distribution under a Sankey item plots. Segment duration by
+   * default: it is what the original's chart plotted, and the only one of the
+   * four that describes the transition itself rather than the patients making it.
+   */
+  sankeyMetric: SankeyMetric
+  /**
+   * The Sankey item whose detail is held open.
+   *
+   * By identity, never by index: indices are reassigned on every rebuild, and
+   * the original, which held d3's `link.index`, ended up pointing at a different
+   * link after a filter. A pin the filters empty stays here *dormant* — it
+   * resolves to nothing, the detail still shows it with its ✕, and widening the
+   * filters brings it back. Cleared on load and on a reshape, where (step,
+   * state) stops meaning the same thing.
+   */
+  sankeyPin: SankeyPin | null
+  /**
+   * A second pinned item (shift-click), drawn against `sankeyPin` in the
+   * distribution. Held rather than taken from hover because the distribution
+   * sits well below the flow, and every route down to it crosses other links.
+   * Never equal to `sankeyPin`.
+   */
+  sankeyCompare: SankeyPin | null
 
   axis: XAxis
   /**
@@ -210,6 +286,16 @@ interface ErasState {
    * pointer before setting it — see `HOVER_SETTLE_MS`.
    */
   hoveredCluster: number | null
+  /**
+   * The typology card under the pointer, by key — what the Sankey traces.
+   *
+   * The original meant to do this: its Sankey dimmed links and nodes by a
+   * `hoveredSilhouette` that nothing set once the layer setting it was commented
+   * out. It is the link between a card and where its patients flow. Tracing one
+   * typology is a single pass over its sequence, so it follows the pointer
+   * without settling.
+   */
+  hoveredTypology: string | null
 
   clusterStatus: ClusterStatus
   clusterError: string | null
@@ -252,10 +338,22 @@ interface ErasState {
   toggleTypology(key: string): void
   clearTypologies(): void
   selectTypologies(keys: readonly string[]): void
-  /** Opens one typology full size with one of its clusters already isolated. */
+  /**
+   * Opens one typology full size, in the Trajectories view, with one of its
+   * clusters already isolated.
+   */
   focusCluster(typologyKey: string, cluster: number): void
+  /**
+   * Selects exactly `keys` and opens the Trajectories view on them — the
+   * Sankey's "Open in Trajectories".
+   */
+  drillDown(keys: readonly string[]): void
   /** Walks the path explorer to `prefix`; `[]` steps back to the whole cohort. */
   selectPath(prefix: readonly number[]): void
+  /** Puts back the selection the last selection-changing action replaced. */
+  undoSelection(): void
+  /** Re-applies the selection the last `undoSelection` took back. */
+  redoSelection(): void
   toggleRemovedState(state: number): void
   resetStates(): void
   setAxis(axis: XAxis): void
@@ -267,6 +365,21 @@ interface ErasState {
   setHoveredPatient(patient: number | null): void
   setHoveredCluster(cluster: number | null): void
   togglePatient(patient: number): void
+
+  setView(view: MainView): void
+  setSankeyOrder(order: SankeyOrder): void
+  setSankeyMetric(metric: SankeyMetric): void
+  /** Pins an item's detail open; `null` unpins. Pinning the compared item promotes it. */
+  setSankeyPin(pin: SankeyPin | null): void
+  /** Sets the item drawn against the pin; `null` clears it. */
+  setSankeyCompare(pin: SankeyPin | null): void
+  setHoveredTypology(key: string | null): void
+  /**
+   * Clears the hover only while it is still `key`'s. A card windowed or
+   * filtered out under the pointer never sees `pointerleave`, and clearing
+   * unconditionally would drop the card the pointer moved on to.
+   */
+  clearHoveredTypology(key: string): void
 
   startClustering(params?: ClusterParams): void
   pauseClustering(): void
@@ -319,6 +432,12 @@ const initial = {
   distributions: null,
   selectedTypologies: [],
   pathPrefix: [],
+  selectionHistory: emptyHistory,
+  view: "sankey" as MainView,
+  sankeyOrder: "state" as SankeyOrder,
+  sankeyMetric: "duration" as SankeyMetric,
+  sankeyPin: null,
+  sankeyCompare: null,
   axis: "age" as XAxis,
   xDomainOverride: null,
   rendererKind: detectRendererKind(),
@@ -326,6 +445,7 @@ const initial = {
   hoveredPatient: null,
   selectedPatients: [],
   hoveredCluster: null,
+  hoveredTypology: null,
 
   clusterStatus: "idle" as ClusterStatus,
   clusterError: null,
@@ -376,6 +496,36 @@ export const useEras = create<ErasState>()((set, get) => {
     }
 
     set({ selectionVersion: get().selectionVersion + 1 })
+  }
+
+  /**
+   * `next` plus the history entry it earns, for the same `set` as the change
+   * itself — so no render ever sees the new selection with the old history.
+   *
+   * Every selection-changing action goes through here, which is what lets undo
+   * see a change made anywhere: the original's history lived inside its chart,
+   * so it missed every change made outside it and was lost on a view switch. A
+   * change that selects the same thing leaves the history as it was.
+   */
+  const withHistory = (next: Partial<ErasState>): Partial<ErasState> => {
+    const state = get()
+    const previous = snapshotOf(state)
+    return {
+      ...next,
+      selectionHistory: pushHistory(state.selectionHistory, previous, { ...previous, ...next }),
+    }
+  }
+
+  /** Puts a snapshot from the history back, as one write, and re-derives the masks. */
+  const restore = (snapshot: SelectionSnapshot, selectionHistory: SelectionHistory): void => {
+    set({
+      ...snapshotOf(snapshot),
+      selectionHistory,
+      // As every other selection change: a hovered cluster belongs to the
+      // typology that was drawn, which may no longer be.
+      hoveredCluster: null,
+    })
+    recompute()
   }
 
   /**
@@ -479,6 +629,13 @@ export const useEras = create<ErasState>()((set, get) => {
       selectedClusters: reshaped ? [] : get().selectedClusters,
       hoveredCluster: reshaped ? null : get().hoveredCluster,
       clusterPreviews: reshaped ? new Map() : get().clusterPreviews,
+      // A pin is a (step, state) and history and hover hold typology keys. A
+      // splice moves later states to earlier steps and merges keys, so none of
+      // them names the same thing afterwards.
+      sankeyPin: reshaped ? null : get().sankeyPin,
+      sankeyCompare: reshaped ? null : get().sankeyCompare,
+      selectionHistory: reshaped ? emptyHistory : get().selectionHistory,
+      hoveredTypology: reshaped ? null : get().hoveredTypology,
       /*
        * Medoids alone, over a run that just went stale, is an empty chart — the
        * same failure `toggleLayer` refuses to let anyone click their way into.
@@ -548,6 +705,12 @@ export const useEras = create<ErasState>()((set, get) => {
       selectedPatients: [],
       hoveredPatient: null,
       xDomainOverride: null,
+      // Undoing into another file's typology keys would select nothing. `view`
+      // is deliberately not here: it is how the user looks, not what the file is.
+      selectionHistory: emptyHistory,
+      sankeyPin: null,
+      sankeyCompare: null,
+      hoveredTypology: null,
 
       clusterRun: null,
       clusterRemovedStates: null,
@@ -643,30 +806,53 @@ export const useEras = create<ErasState>()((set, get) => {
 
     toggleTypology(key) {
       const current = get().selectedTypologies
-      set({
-        selectedTypologies: current.includes(key)
-          ? current.filter((k) => k !== key)
-          : [...current, key],
-        // Picking a card by hand makes the selection something no prefix
-        // describes, and a breadcrumb that no longer matches the selection is
-        // worse than no breadcrumb.
-        pathPrefix: [],
-        // A cluster belongs to one typology's ladder; changing which typology
-        // is drawn abandons it rather than plotting it against another.
-        selectedClusters: [],
-        hoveredCluster: null,
-      })
+      set(
+        withHistory({
+          selectedTypologies: current.includes(key)
+            ? current.filter((k) => k !== key)
+            : [...current, key],
+          // Picking a card by hand makes the selection something no prefix
+          // describes, and a breadcrumb that no longer matches the selection is
+          // worse than no breadcrumb.
+          pathPrefix: [],
+          // A cluster belongs to one typology's ladder; changing which typology
+          // is drawn abandons it rather than plotting it against another.
+          selectedClusters: [],
+          hoveredCluster: null,
+        }),
+      )
       recompute()
     },
 
     /** Replaces the selection outright — what opening one small multiple does. */
     selectTypologies(keys) {
-      set({
-        selectedTypologies: [...keys],
-        pathPrefix: [],
-        selectedClusters: [],
-        hoveredCluster: null,
-      })
+      set(
+        withHistory({
+          selectedTypologies: [...keys],
+          pathPrefix: [],
+          selectedClusters: [],
+          hoveredCluster: null,
+        }),
+      )
+      recompute()
+    },
+
+    /*
+     * The Sankey's "Open in Trajectories": narrow to the typologies through a
+     * flow and show them. One action for the same reason as `focusCluster` —
+     * selecting and then switching as two calls would mount the Trajectories
+     * view on the old selection first and build its geometry for nothing.
+     */
+    drillDown(keys) {
+      set(
+        withHistory({
+          selectedTypologies: [...keys],
+          pathPrefix: [],
+          selectedClusters: [],
+          hoveredCluster: null,
+          view: "trajectories",
+        }),
+      )
       recompute()
     },
 
@@ -677,14 +863,21 @@ export const useEras = create<ErasState>()((set, get) => {
      * One action rather than two calls, because the order is a trap —
      * `selectTypologies` clears the cluster selection, so isolating first and
      * focusing second would silently undo half of it.
+     *
+     * It also opens the Trajectories view. The sidebar's cluster lines call this
+     * too, and they are on screen over the Sankey, which cannot show a cluster:
+     * isolating one there would be a change nobody could see.
      */
     focusCluster(typologyKey, cluster) {
-      set({
-        selectedTypologies: [typologyKey],
-        pathPrefix: [],
-        selectedClusters: [cluster],
-        hoveredCluster: null,
-      })
+      set(
+        withHistory({
+          selectedTypologies: [typologyKey],
+          pathPrefix: [],
+          selectedClusters: [cluster],
+          hoveredCluster: null,
+          view: "trajectories",
+        }),
+      )
       recompute()
     },
 
@@ -692,22 +885,41 @@ export const useEras = create<ErasState>()((set, get) => {
       // Same rule as `toggleTypology`: a cluster belongs to one typology's
       // ladder, so leaving that ladder abandons it. Without this, going back to
       // the grid left an isolation the grid does not honour and cannot show.
-      set({ selectedTypologies: [], pathPrefix: [], selectedClusters: [], hoveredCluster: null })
+      set(
+        withHistory({
+          selectedTypologies: [],
+          pathPrefix: [],
+          selectedClusters: [],
+          hoveredCluster: null,
+        }),
+      )
       recompute()
     },
 
     selectPath(prefix) {
       const { typologies } = get()
-      set({
-        pathPrefix: prefix,
-        selectedTypologies:
-          prefix.length === 0
-            ? []
-            : typologies
-                .filter((typology) => startsWithPath(typology.states, prefix))
-                .map((typology) => typology.key),
-      })
+      set(
+        withHistory({
+          pathPrefix: prefix,
+          selectedTypologies:
+            prefix.length === 0
+              ? []
+              : typologies
+                  .filter((typology) => startsWithPath(typology.states, prefix))
+                  .map((typology) => typology.key),
+        }),
+      )
       recompute()
+    },
+
+    undoSelection() {
+      const step = undo(get().selectionHistory, snapshotOf(get()))
+      if (step !== null) restore(step.snapshot, step.history)
+    },
+
+    redoSelection() {
+      const step = redo(get().selectionHistory, snapshotOf(get()))
+      if (step !== null) restore(step.snapshot, step.history)
     },
 
     toggleRemovedState(state) {
@@ -759,6 +971,62 @@ export const useEras = create<ErasState>()((set, get) => {
           ? current.filter((p) => p !== patient)
           : [...current, patient],
       })
+    },
+
+    setView(view) {
+      if (get().view === view) return
+      // Swapping unmounts the chart under the pointer, and a swap by keyboard
+      // does it without the pointerleave that clears its hover — the sidebar
+      // would go on highlighting a patient and a cluster nobody is pointing at.
+      set({ view, hoveredPatient: null, hoveredCluster: null })
+    },
+
+    setSankeyOrder(sankeyOrder) {
+      set({ sankeyOrder })
+    },
+    setSankeyMetric(sankeyMetric) {
+      set({ sankeyMetric })
+    },
+
+    setSankeyPin(sankeyPin) {
+      const { sankeyPin: current, sankeyCompare } = get()
+      // Compared by value: every click builds a fresh pin, and a redundant set
+      // would re-render the detail for nothing.
+      if (samePin(current, sankeyPin)) return
+      /*
+       * Unpinning with a comparison held promotes the comparison. Left as it
+       * was, it compared against nothing: the strip showed a lone accent curve
+       * under the idle hint, and the next hover drew a second one that could not
+       * be told from it.
+       */
+      if (sankeyPin === null) {
+        set({ sankeyPin: sankeyCompare, sankeyCompare: null })
+        return
+      }
+      set({
+        sankeyPin,
+        // Pinning the compared item promotes it rather than drawing one curve
+        // twice.
+        sankeyCompare: samePin(sankeyCompare, sankeyPin) ? null : sankeyCompare,
+      })
+    },
+
+    setSankeyCompare(sankeyCompare) {
+      const { sankeyPin, sankeyCompare: current } = get()
+      // The same rule from the other side: comparing the pinned item with
+      // itself compares nothing.
+      const next = samePin(sankeyCompare, sankeyPin) ? null : sankeyCompare
+      if (!samePin(current, next)) set({ sankeyCompare: next })
+    },
+
+    setHoveredTypology(hoveredTypology) {
+      // Compared before setting, as `setHoveredCluster`: the pointer re-enters
+      // the same card, and each redundant set would re-trace the Sankey.
+      if (get().hoveredTypology !== hoveredTypology) set({ hoveredTypology })
+    },
+
+    clearHoveredTypology(key) {
+      if (get().hoveredTypology === key) set({ hoveredTypology: null })
     },
 
     startClustering(params) {

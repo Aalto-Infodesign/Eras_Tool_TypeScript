@@ -6,13 +6,16 @@ import { FiltersPanel } from "../ui/FiltersPanel.tsx"
 import { ClusterTable } from "../ui/ClusterTable.tsx"
 import { PathExplorer } from "../ui/PathExplorer.tsx"
 import { PerfHud } from "../ui/PerfHud.tsx"
+import { SankeyChart } from "../ui/SankeyChart.tsx"
 import { StatesPanel } from "../ui/StatesPanel.tsx"
 import { TrajectoriesChart } from "../ui/TrajectoriesChart.tsx"
 import { TypologyList } from "../ui/TypologyList.tsx"
+import { ViewSwitcher } from "../ui/ViewSwitcher.tsx"
 
 export function App(): React.JSX.Element {
   const status = useEras((s) => s.status)
   const hasData = useEras((s) => s.store !== null)
+  const view = useEras((s) => s.view)
 
   return (
     <div className="app">
@@ -26,6 +29,7 @@ export function App(): React.JSX.Element {
       {hasData ? (
         <main className="app__main">
           <aside className="app__side">
+            <ViewSwitcher />
             <PerfHud />
             <StatesPanel />
             <FiltersPanel />
@@ -36,7 +40,15 @@ export function App(): React.JSX.Element {
 
           <section className="app__chart">
             <ControlBar />
-            <TrajectoriesChart />
+            {/*
+             * Keyed by the view, so a swap unmounts one chart and mounts the
+             * other — a hidden Trajectories chart would go on rebuilding its
+             * geometry on every filter frame and hold its WebGL context — and
+             * the wrapper's fade-in plays once per swap.
+             */}
+            <div className="app__view" key={view}>
+              {view === "sankey" ? <SankeyChart /> : <TrajectoriesChart />}
+            </div>
           </section>
         </main>
       ) : (

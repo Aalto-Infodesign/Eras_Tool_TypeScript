@@ -4,6 +4,16 @@ interface Props {
   readonly title: string
   /** Shown on the right of the header, and kept visible while collapsed. */
   readonly count?: React.ReactNode
+  /**
+   * Rendered under the header and, unlike `children`, kept on screen when the
+   * panel folds away.
+   *
+   * For the state a panel has *put on the data* rather than the controls that
+   * put it there. A collapsed Filters panel was still cutting the cohort with no
+   * sign of how, which is the one thing a fold must not hide — the count in the
+   * header says the selection shrank, not what shrank it.
+   */
+  readonly summary?: React.ReactNode
   readonly defaultOpen?: boolean
   readonly className?: string
   readonly children: React.ReactNode
@@ -24,6 +34,7 @@ interface Props {
 export function Panel({
   title,
   count,
+  summary,
   defaultOpen = false,
   className,
   children,
@@ -44,6 +55,8 @@ export function Panel({
         <h2>{title}</h2>
         {count !== undefined && <span className="panel__count">{count}</span>}
       </button>
+
+      {summary !== undefined && <div className="panel__summary">{summary}</div>}
 
       {isOpen && <div className="panel__body">{children}</div>}
     </section>

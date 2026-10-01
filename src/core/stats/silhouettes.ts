@@ -49,6 +49,24 @@ export function filteredSizes(
 }
 
 /**
+ * Which typologies the small multiples show: the selected ones in the list's
+ * own order, or — with nothing selected — the biggest few, up to `limit`.
+ *
+ * One rule in one place, because two things draw it: the grid itself and the
+ * View panel's mini of it. If each kept its own copy, the thumbnail you click
+ * could promise panels the view does not open on.
+ */
+export function panelTypologies(
+  typologies: readonly Typology[],
+  selected: readonly string[],
+  limit: number,
+): readonly Typology[] {
+  if (selected.length === 0) return typologies.slice(0, limit)
+  const keys = new Set(selected)
+  return typologies.filter((typology) => keys.has(typology.key)).slice(0, limit)
+}
+
+/**
  * Patient ids across a set of typologies, for export.
  *
  * `mask` narrows each group to the patients currently passing the filters, which

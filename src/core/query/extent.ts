@@ -40,3 +40,21 @@ export function visibleExtent(
 
   return [lo, hi]
 }
+
+/**
+ * The x domain the chart draws against: the user's zoom if there is one, else
+ * the whole dataset on the chosen axis.
+ *
+ * Shared by the chart and the View panel's mini of it, so the thumbnail is
+ * scaled exactly as the view it opens — the mini cannot ask the chart, because
+ * the chart is not mounted while the mini is showing it.
+ */
+export function xDomainOf(
+  store: TrajectoryStore | null,
+  axis: XAxis,
+  override: readonly [number, number] | null,
+): readonly [number, number] {
+  if (override !== null) return override
+  if (store === null) return [0, 1]
+  return axis === "age" ? store.extents.age : store.extents.year
+}

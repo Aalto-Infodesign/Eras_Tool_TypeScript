@@ -38,8 +38,6 @@ const CPU_PICK_LIMIT = 200_000
  * actually pays for, and it is the number the stats line already reports.
  */
 const MAX_ANIMATED_SEGMENTS = 50_000
-/** How long the pointer rests on the chip before it spells the sequence out. */
-const REVEAL_MS = 320
 /**
  * Draw budget, in milliseconds, above which the highlight lands rather than
  * fades.
@@ -53,6 +51,14 @@ const REVEAL_MS = 320
  * than an instant one.
  */
 const FADE_FRAME_BUDGET_MS = 7
+/**
+ * How far the spines that are *not* being pointed at step back.
+ *
+ * Lighter than `DIM_FADE`: the field below is context and can go most of the way
+ * out, where the other spines are the population this one belongs to and have to
+ * stay countable.
+ */
+const SPINE_DIM_FADE = 0.68
 
 export function TrajectoriesChart(): React.JSX.Element {
   const axis = useEras((s) => s.axis)
@@ -74,8 +80,8 @@ export function TrajectoriesChart(): React.JSX.Element {
     linesDrawn,
     lumps,
     medoidCount,
-    stateStats,
-    populationStats,
+    rowStats,
+    rowReference,
     rowOf: targetRowOf,
     rowStates,
     rowLabels,
@@ -187,7 +193,7 @@ export function TrajectoriesChart(): React.JSX.Element {
    * behind it. At `highlightOpacity` 0 the pass is skipped anyway, so holding
    * one cluster's geometry costs nothing but says what to draw on the way down.
    */
-  const [lit, setLit] = useState<Geometry | null>(null)
+  const [lit, setLit] = useState<{ members: Geometry; spine: Geometry } | null>(null)
 
   useEffect(() => {
     if (highlight !== null) setLit(highlight)
@@ -199,7 +205,11 @@ export function TrajectoriesChart(): React.JSX.Element {
   }, [renderer, overlay])
 
   useEffect(() => {
-    renderer?.setHighlightGeometry(lit)
+    renderer?.setHighlightGeometry(lit?.members ?? null)
+  }, [renderer, lit])
+
+  useEffect(() => {
+    renderer?.setFocusGeometry(lit?.spine ?? null)
   }, [renderer, lit])
 
   useEffect(() => {
@@ -238,6 +248,13 @@ export function TrajectoriesChart(): React.JSX.Element {
       background,
       overlayOpacity: 0.95,
       overlayWidth: 2.5,
+      /*
+       * Dimming the field alone was enough while there were far more hairlines
+       * than spines. It is not when a typology has many clusters and few members:
+       * what recedes is thin, and a wall of spines at full strength buries the
+       * one being asked about.
+       */
+      overlayFade: SPINE_DIM_FADE * focus,
       highlightOpacity: HIGHLIGHT_OPACITY * focus,
     }),
     [xDomain, rowStates.length, opacity, linesDrawn, baseFade, focus, background],
@@ -332,9 +349,10 @@ export function TrajectoriesChart(): React.JSX.Element {
   )
 
   // Settled rather than applied per frame: see `createHoverSettler`.
-  const settler = useMemo(() => createHoverSettler<number | null>(setHoveredCluster), [
-    setHoveredCluster,
-  ])
+  const settler = useMemo(
+    () => createHoverSettler<number | null>(setHoveredCluster),
+    [setHoveredCluster],
+  )
 
   useEffect(() => () => settler.cancel(), [settler])
 
@@ -457,18 +475,24 @@ export function TrajectoriesChart(): React.JSX.Element {
           palette={statePalette}
         />
 
-        {!byPosition && (
-          <StateBoxPlots
-            width={size.width}
-            height={size.height}
-            marginY={MARGIN_Y}
-            xDomain={xDomain}
-            rowOf={rowOf}
-            stats={stateStats}
-            population={populationStats}
-            palette={statePalette}
-          />
-        )}
+        {/*
+         * Back on the ladder, where they had quietly stopped rendering: the old
+         * gate was `!byPosition`, and every single-typology chart is a ladder
+         * now, so the condition was never true again.
+         */}
+        <StateBoxPlots
+          width={size.width}
+          height={size.height}
+          marginY={MARGIN_Y}
+          xDomain={xDomain}
+          rowOf={rowOf}
+          rowStates={rowStates}
+          byPosition={byPosition}
+          stats={rowStats}
+          reference={rowReference}
+          axis={axis}
+          palette={statePalette}
+        />
 
         {layers.lumps && (
           <LumpLayer
@@ -540,7 +564,6 @@ function ChartStats({
   frameRef: React.RefObject<number>
   indexing: boolean
 }): React.JSX.Element {
-  const rendererKind = useEras((s) => s.rendererKind)
   const layers = useEras((s) => s.layers)
   const staleClusters = useEras(clusterStale)
   const selection = useEras((s) => s.selection)
@@ -622,7 +645,7 @@ function ChartStats({
           isolated ✕
         </button>
       )}
-      <span className="chart__stats-kind">{rendererKind}</span>
+      {/* <span className="chart__stats-kind">{rendererKind}</span> */}
       {indexing && <span className="chart__stats-pending">indexing…</span>}
     </div>
   )
@@ -632,11 +655,9 @@ function ChartStats({
  * Which typology is on screen, as its own colour run.
  *
  * A key is a long string and the stats line is one row of small text, so the
- * chip carries the same dots the small-multiple card did — the thing you
- * clicked and the thing that says where you are look alike. The text is a
- * *reveal*: rest on it and it spells the sequence out, which is the rare case,
- * while the common one costs a few dozen pixels. Rest rather than hover so
- * crossing the stats line on the way somewhere else never makes it jump.
+ * chip carries the same dots the small-multiple card did — the thing you clicked
+ * and the thing that says where you are look alike. `StateDots` owns the reveal,
+ * which is what keeps the two identical.
  */
 function TypologyChip({
   label,
@@ -651,34 +672,23 @@ function TypologyChip({
   palette: Palette
   onClear: () => void
 }): React.JSX.Element {
-  const [revealed, setRevealed] = useState(false)
-  const timer = useRef(0)
-
   const repeated = useMemo(() => repeatedSteps(states), [states])
-
-  useEffect(() => () => window.clearTimeout(timer.current), [])
 
   return (
     <button
       type="button"
-      className="chart__stats-isolated chip"
-      data-revealed={revealed}
-      title={`${label} — back to the grid`}
-      onPointerEnter={() => {
-        window.clearTimeout(timer.current)
-        timer.current = window.setTimeout(() => setRevealed(true), REVEAL_MS)
-      }}
-      onPointerLeave={() => {
-        window.clearTimeout(timer.current)
-        setRevealed(false)
-      }}
+      className="chart__stats-isolated chart__stats-chip"
+      aria-label={`${label} — back to the grid`}
       onClick={onClear}
     >
-      <StateDots states={states} labels={labels} repeated={repeated} palette={palette} />
-      {revealed && <span className="chip__text">{label}</span>}
-      <span className="chip__clear" aria-hidden="true">
-        ✕
-      </span>
+      <StateDots
+        states={states}
+        labels={labels}
+        repeated={repeated}
+        palette={palette}
+        hint="click to go back to the grid"
+      />
+      <span aria-hidden="true">✕</span>
     </button>
   )
 }

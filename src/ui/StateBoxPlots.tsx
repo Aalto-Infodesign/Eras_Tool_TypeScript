@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 
-import { useEras } from "../app/store.ts"
 import type { StateStats } from "../core/render/boxplots.ts"
+import type { XAxis } from "../core/render/geometry.ts"
 import type { Palette } from "../core/render/palette.ts"
 
 interface Props {
@@ -11,10 +11,15 @@ interface Props {
   readonly xDomain: readonly [number, number]
   /** stateId → row, fractional while a reorder animates. */
   readonly rowOf: Float32Array
-  /** Arrival stats of the current selection: the bar and its median tick. */
-  readonly stats: readonly StateStats[]
-  /** The same, before the narrowing filters: the whiskers reach out to these. */
-  readonly population: readonly StateStats[]
+  /** Row → state id; a focused sequence repeats one where it returns to it. */
+  readonly rowStates: readonly number[]
+  /** Rows are steps of one sequence, so the row *is* the index. */
+  readonly byPosition: boolean
+  /** Row → when the drawn patients reach it: the bar and its median tick. */
+  readonly stats: readonly (StateStats | null)[]
+  /** Row → when the whole cohort reaches that state: the whiskers reach here. */
+  readonly reference: readonly (StateStats | null)[]
+  readonly axis: XAxis
   readonly palette: Palette
 }
 
@@ -25,23 +30,43 @@ const CAP_HEIGHT = 4
 /** Width of the median tick. */
 const MEDIAN_WIDTH = 1.5
 /** Gap between a bar's end and its extent label. */
-const LABEL_GAP = 5
+const LABEL_GAP = 4
+/**
+ * Extent labels sit *below* the rule, where the row's own label sits above it.
+ *
+ * They used to share the centre line, which was fine when a row was a state and
+ * its label lived in the margin. On a ladder of steps the row label is on the
+ * rule itself, and a bar that starts near the left edge put its `42y` straight
+ * through the state's name. Splitting them vertically is the only arrangement
+ * that cannot collide, whatever the domain does.
+ */
+const LABEL_BELOW = 11
+/**
+ * Below this row pitch the labels would run into the neighbouring rows, so the
+ * glyph keeps the bar and drops the text. A long sequence is exactly the case
+ * where the rows are tight and the numbers are least readable anyway.
+ */
+const MIN_PITCH_FOR_LABELS = 30
 
 /**
- * One range-and-median glyph per state row — the original's `BoxPlot`.
+ * One range-and-median glyph per row — the original's `BoxPlot`, per *visit*.
  *
- * The glyph reads as: how early and how late this state is reached, by whom.
+ * The glyph reads as: how early and how late this step is reached, by whom.
  *
- * - the **bar** spans the current selection's min → max arrival, with a tick at
- *   its median;
- * - the **whiskers** run from the bar's ends out to where the *unnarrowed*
- *   population reaches, with an end cap at each extreme.
+ * - the **bar** spans the drawn patients' min → max arrival at this step, with a
+ *   tick at their median;
+ * - the **whiskers** run from the bar's ends out to where the *whole cohort*
+ *   reaches that state, capped at each extreme.
  *
- * That second part is the whole point, and it is what the TypeScript rewrite had
- * lost: it puts the selection inside the population it was drawn from, so
- * narrowing shows you what you excluded rather than silently rescaling. With
- * nothing narrowed the two coincide and the whiskers vanish, exactly as in the
- * original.
+ * That second part is the point, and it is what the rewrite had lost twice over.
+ * It puts the typology inside the population it was drawn from, so a sequence
+ * that arrives at `c` unusually late says so against everyone else who ever
+ * reached `c`, rather than silently rescaling to itself.
+ *
+ * Rows are steps now, not states, and the stats are built per step for the same
+ * reason the rules are: a sequence that returns to a state reaches it at two
+ * different times, and pooling both visits into one glyph would put the same bar
+ * on both rules and deny the only thing worth seeing there.
  *
  * Note that the original computes `q1`/`q3` in its five-number summary and then
  * never draws them — its bar is the min→max extent, not the interquartile box
@@ -54,46 +79,50 @@ export function StateBoxPlots({
   marginY,
   xDomain,
   rowOf,
+  rowStates,
+  byPosition,
   stats,
-  population,
+  reference,
+  axis,
   palette,
 }: Props): React.JSX.Element | null {
-  const stateOrder = useEras((s) => s.visibleStates)
-
   const project = useMemo(() => {
     const [x0, x1] = xDomain
     const span = Math.max(x1 - x0, 1e-6)
     const usable = Math.max(height - 2 * marginY, 1)
-    const rowHeight = usable / Math.max(stateOrder.length, 1)
+    const rowHeight = usable / Math.max(rowStates.length, 1)
 
     return {
       x: (value: number) => ((value - x0) / span) * width,
       y: (row: number) => marginY + (row + 0.5) * rowHeight,
+      pitch: rowHeight,
     }
-  }, [xDomain, width, height, marginY, stateOrder.length])
+  }, [xDomain, width, height, marginY, rowStates.length])
 
-  const fullByState = useMemo(
-    () => new Map(population.map((entry) => [entry.state, entry])),
-    [population],
-  )
+  if (width === 0 || height === 0 || rowStates.length === 0) return null
 
-  if (width === 0 || height === 0 || stats.length === 0) return null
+  const showLabels = project.pitch >= MIN_PITCH_FOR_LABELS
+  const unit = axis === "age" ? "y" : ""
 
   return (
     <svg className="chart__boxplots" width={width} height={height} aria-hidden="true">
-      {stats.map((stat) => {
-        const row = rowOf[stat.state]
-        if (row === undefined || row < 0) return null
+      {rowStates.map((state, index) => {
+        const stat = stats[index]
+        if (stat === undefined || stat === null) return null
 
-        const color = palette.css[stat.state] ?? "currentColor"
-        const y = project.y(row)
+        const row = byPosition ? index : (rowOf[state] ?? index)
+        const color = palette.css[state] ?? "currentColor"
         const min = project.x(stat.min)
         const max = project.x(stat.max)
-        const full = fullByState.get(stat.state)
+        const full = reference[index]
 
         return (
-          <g key={stat.state} className="boxplot" transform={`translate(0 ${y.toFixed(1)})`}>
-            {full !== undefined && (
+          <g
+            key={index}
+            className="boxplot"
+            transform={`translate(0 ${project.y(row).toFixed(1)})`}
+          >
+            {full != null && (
               <>
                 <Whisker from={project.x(full.min)} to={min} color={color} />
                 <Whisker from={project.x(full.max)} to={max} color={color} />
@@ -116,12 +145,31 @@ export function StateBoxPlots({
               height={BAR_HEIGHT}
             />
 
-            <text className="boxplot__label" x={min - LABEL_GAP} textAnchor="end" fill={color}>
-              {`${stat.min.toFixed(0)}y`}
-            </text>
-            <text className="boxplot__label" x={max + LABEL_GAP} textAnchor="start" fill={color}>
-              {`${stat.max.toFixed(0)}y`}
-            </text>
+            {showLabels && (
+              <>
+                {/* Clamped inward at the edges: a bar that starts at the very
+                    left of the domain would otherwise hang its number off the
+                    side of the chart, where it is simply not drawn. */}
+                <text
+                  className="boxplot__label"
+                  x={min}
+                  y={LABEL_BELOW}
+                  textAnchor={"start"}
+                  fill={color}
+                >
+                  {`${stat.min.toFixed(0)}${unit}`}
+                </text>
+                <text
+                  className="boxplot__label"
+                  x={Math.min(max + LABEL_GAP, width - 2)}
+                  y={LABEL_BELOW}
+                  textAnchor={"end"}
+                  fill={color}
+                >
+                  {`${stat.max.toFixed(0)}${unit}`}
+                </text>
+              </>
+            )}
           </g>
         )
       })}
@@ -129,7 +177,7 @@ export function StateBoxPlots({
   )
 }
 
-/** One side: a thin line out to the population's extreme, capped there. */
+/** One side: a thin line out to the cohort's extreme, capped there. */
 function Whisker({
   from,
   to,

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { buildStore } from "../model/build.ts"
 import { spliceStates } from "../model/reshape.ts"
 import { applyFilters, emptyFilters } from "../query/filters.ts"
-import { visibleExtent } from "../query/extent.ts"
+import { visibleExtent, xDomainOf } from "../query/extent.ts"
 import type { PatientRecord } from "../types.ts"
 
 /** Patients arriving a decade apart, each spanning ten years. */
@@ -76,5 +76,23 @@ describe("visible extent", () => {
 
     // The emptied row contributes no events, so it cannot hold the axis open.
     expect(visibleExtent(spliced, all, "age")).toEqual([20, 70])
+  })
+})
+
+describe("x domain", () => {
+  it("spans the whole dataset on the chosen axis", () => {
+    const store = buildStore(cohort)
+    expect(xDomainOf(store, "age", null)).toEqual([20, 70])
+    expect(xDomainOf(store, "year", null)).toEqual([2000, 2050])
+  })
+
+  it("prefers the user's zoom when there is one", () => {
+    const store = buildStore(cohort)
+    expect(xDomainOf(store, "age", [30, 40])).toEqual([30, 40])
+    expect(xDomainOf(null, "year", [1990, 1995])).toEqual([1990, 1995])
+  })
+
+  it("falls back to a unit domain before anything is loaded", () => {
+    expect(xDomainOf(null, "age", null)).toEqual([0, 1])
   })
 })

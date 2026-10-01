@@ -68,46 +68,50 @@ export function FiltersPanel(): React.JSX.Element | null {
           {selection.count.toLocaleString()} / {cohortSize.toLocaleString()}
         </span>
       }
+      /*
+       * The chips are the filter's memory, so they live in the summary slot
+       * rather than in the body: once a range is placed, the panel can be
+       * collapsed and what is still cutting the data stays legible — with its
+       * two verbs, invert and drop, on the summary itself. One row that scrolls
+       * sideways rather than a wrapping block, so folding the panel away buys a
+       * fixed amount of column back however many filters are on.
+       */
+      summary={
+        active.length > 0 ? (
+          <ul className="chips">
+            {active.map((key) => {
+              const range = filters[key] as Range
+              const inverted = filters.inverted[key] === true
+
+              return (
+                <li key={key} className="chip" data-inverted={inverted}>
+                  <button
+                    type="button"
+                    className="chip__invert"
+                    title={inverted ? "Filtering outside this range" : "Filter outside this range"}
+                    onClick={() => toggleInverted(key)}
+                  >
+                    {inverted ? "◑" : "◐"}
+                  </button>
+                  <span className="chip__label">
+                    {SHORT[key]} {inverted && "∉ "}
+                    {range.min.toFixed(0)}–{range.max.toFixed(0)}
+                  </span>
+                  <button
+                    type="button"
+                    className="chip__remove"
+                    title="Drop this filter"
+                    onClick={() => resetFilter(key)}
+                  >
+                    ✕
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        ) : undefined
+      }
     >
-      {/*
-       * The chips are the filter's memory: once a range is placed, the panel can
-       * be scrolled away or collapsed and what is still cutting the data stays
-       * legible — with its two verbs, invert and drop, on the summary itself.
-       */}
-      {active.length > 0 && (
-        <ul className="chips">
-          {active.map((key) => {
-            const range = filters[key] as Range
-            const inverted = filters.inverted[key] === true
-
-            return (
-              <li key={key} className="chip" data-inverted={inverted}>
-                <button
-                  type="button"
-                  className="chip__invert"
-                  title={inverted ? "Filtering outside this range" : "Filter outside this range"}
-                  onClick={() => toggleInverted(key)}
-                >
-                  {inverted ? "◑" : "◐"}
-                </button>
-                <span className="chip__label">
-                  {SHORT[key]} {inverted && "∉ "}
-                  {range.min.toFixed(0)}–{range.max.toFixed(0)}
-                </span>
-                <button
-                  type="button"
-                  className="chip__remove"
-                  title="Drop this filter"
-                  onClick={() => resetFilter(key)}
-                >
-                  ✕
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
       {/*
        * Manual for now. Refitting on every filter change would mean the axis
        * moving under the pointer mid-drag, which makes a filter hard to aim;

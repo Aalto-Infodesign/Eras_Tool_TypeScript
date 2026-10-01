@@ -3,8 +3,9 @@ import { useMemo } from "react"
 import { chartModeOf, focusedTypologyOf, useEras } from "../app/store.ts"
 import { clusterMembers, medoidPatients } from "../core/cluster/medoids.ts"
 import { TOP_CLUSTER_LIMIT } from "../core/cluster/types.ts"
+import { xDomainOf } from "../core/query/extent.ts"
 import { sequenceLabels } from "../core/stats/silhouettes.ts"
-import { buildStateStats, type StateStats } from "../core/render/boxplots.ts"
+import { buildStateStats, buildStepStats, type StateStats } from "../core/render/boxplots.ts"
 import {
   buildGeometry,
   rowLookup,
@@ -27,8 +28,12 @@ export interface ChartLayers {
   readonly bulk: Geometry | null
   /** Medoid spines when they sit *over* the hairlines; the renderer's own slot. */
   readonly overlay: Geometry | null
-  /** The members of the cluster under the cursor, or `null` when none is. */
-  readonly highlight: Geometry | null
+  /**
+   * The cluster under the cursor, as the two things the chart needs to show it:
+   * the members to lift out of the field, and its own spine to hold at full
+   * strength while `overlayFade` pushes the rest of the layer back.
+   */
+  readonly highlight: { readonly members: Geometry; readonly spine: Geometry } | null
   /** How many patients `highlight` holds — what the hovered spine stands for. */
   readonly highlightCount: number
   /**
@@ -48,10 +53,16 @@ export interface ChartLayers {
   readonly lumps: readonly Lump[]
   /** How many cluster spines `bulk` holds in medoid mode; `0` otherwise. */
   readonly medoidCount: number
-  /** Per-state arrival summary of the selection: the box plot bars. */
-  readonly stateStats: readonly StateStats[]
-  /** The same before the narrowing filters: the box plot whiskers. */
-  readonly populationStats: readonly StateStats[]
+  /**
+   * Row → when the drawn patients reach that row: the box plot bars.
+   *
+   * Per *step*, not per state, because that is what a row is here — a sequence
+   * that returns to a state reaches it at two different times, and one glyph on
+   * both rules would deny the only thing worth seeing there.
+   */
+  readonly rowStats: readonly (StateStats | null)[]
+  /** Row → when the whole cohort reaches that state: the whiskers reach here. */
+  readonly rowReference: readonly (StateStats | null)[]
   readonly rowOf: Float32Array
   /**
    * Row → state id. Normally the visible state order; while a typology is
@@ -150,11 +161,12 @@ export function useChartLayers(): ChartLayers {
     return identity
   }, [focused, stateCount, stateOrder])
 
-  const xDomain = useMemo<readonly [number, number]>(() => {
-    if (xDomainOverride !== null) return xDomainOverride
-    if (store === null) return [0, 1]
-    return axis === "age" ? store.extents.age : store.extents.year
-  }, [store, axis, xDomainOverride])
+  // One rule with the View panel's mini, which has to scale itself the same way
+  // while this chart is not mounted to ask.
+  const xDomain = useMemo(
+    () => xDomainOf(store, axis, xDomainOverride),
+    [store, axis, xDomainOverride],
+  )
 
   const color = useMemo<ColorSource>(
     () => ({ kind: "state", palette: statePalette }),
@@ -325,9 +337,28 @@ export function useChartLayers(): ChartLayers {
 
   const highlightGeometry = useMemo(() => {
     if (store === null || mode === "multiples" || rowStates.length === 0) return null
-    if (highlightPatients.length === 0) return null
-    return buildGeometry(store, highlightPatients, geometryOptions)
-  }, [store, mode, rowStates.length, highlightPatients, geometryOptions])
+    if (highlightPatients.length === 0 || hoveredCluster === null || clusterRun === null) return null
+
+    const ref = clusterRun.clusters[hoveredCluster]
+    if (ref === undefined) return null
+
+    return {
+      members: buildGeometry(store, highlightPatients, geometryOptions),
+      // One trajectory. Cheap enough to rebuild on every settled hover, which is
+      // what lets the spine layer behind it fade as a whole.
+      spine: buildGeometry(store, Uint32Array.of(ref.medoidPatient), geometryOptions),
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    store,
+    mode,
+    rowStates.length,
+    highlightPatients,
+    geometryOptions,
+    hoveredCluster,
+    clusterRun,
+    clusterVersion,
+  ])
 
   /*
    * Which slot each one lands in. The spines go on top when the hairlines are
@@ -353,21 +384,31 @@ export function useChartLayers(): ChartLayers {
   }, [store, byPosition, layers.lumps, visiblePatients, axis, filters.duration])
 
   /**
-   * Box plot stats. Both sides are one scan plus a sort per state, and they are
-   * keyed on the selection version rather than on the compacted index list, so a
-   * filter drag recomputes them once per change and not once per frame.
+   * Box plot stats. Both sides are one counting pass over the events, and they
+   * are keyed on the selection version rather than on the compacted index list,
+   * so a filter drag recomputes them once per change and not once per frame.
+   *
+   * The bars are built from the patients the chart is actually drawing — so
+   * isolating a cluster narrows them with everything else — while the reference
+   * behind them is the *whole cohort*, which is what makes a typology's timing
+   * legible as early or late rather than merely as itself.
    */
-  const stateStats = useMemo(() => {
-    if (store === null) return []
-    return buildStateStats(store, selection?.mask ?? null, axis)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, selection, selectionVersion, axis])
+  const rowStats = useMemo<readonly (StateStats | null)[]>(() => {
+    if (store === null || mode === "multiples" || rowStates.length === 0) return []
+    return buildStepStats(store, linePatients, rowStates.length, axis)
+  }, [store, mode, linePatients, rowStates.length, axis])
 
   const populationStats = useMemo(() => {
     if (store === null) return []
     return buildStateStats(store, population?.mask ?? null, axis)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, population, selectionVersion, axis])
+
+  const rowReference = useMemo<readonly (StateStats | null)[]>(() => {
+    if (rowStats.length === 0) return []
+    const byState = new Map(populationStats.map((entry) => [entry.state, entry]))
+    return rowStates.map((state) => byState.get(state) ?? null)
+  }, [rowStats.length, populationStats, rowStates])
 
   return {
     bulk,
@@ -378,8 +419,8 @@ export function useChartLayers(): ChartLayers {
     isIsolated,
     lumps,
     medoidCount: medoids.length,
-    stateStats,
-    populationStats,
+    rowStats,
+    rowReference,
     rowOf,
     rowStates,
     rowLabels,

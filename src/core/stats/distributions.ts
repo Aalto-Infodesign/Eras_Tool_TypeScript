@@ -49,8 +49,13 @@ function emptyDistribution(domain: readonly [number, number]): Distribution {
   return { counts: new Uint32Array(1), max: 0, domain, binWidth: 1 }
 }
 
-/** Bins `values` over `domain`; values outside it are clamped into the end bins. */
-function histogram(
+/**
+ * Bins `values` over `domain`; values outside it are clamped into the end bins.
+ *
+ * Exported for the Sankey's distribution, which bins a pinned item's values
+ * over a domain from `niceBins` so that bin edges land on round numbers.
+ */
+export function histogram(
   values: Float64Array,
   count: number,
   domain: readonly [number, number],

@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react"
 
-/** Long enough to read as a move, short enough not to be in the way. */
-const DURATION_MS = 380
+/**
+ * Long enough to read as a move, short enough not to be in the way.
+ *
+ * Exported with `ease` so the Sankey's tween moves with the same feel as the
+ * chart's rather than a copy of it that drifts.
+ */
+export const DURATION_MS = 380
 
 /** Ease-out cubic: fast commitment, soft landing. */
-const ease = (t: number): number => 1 - (1 - t) ** 3
+export const ease = (t: number): number => 1 - (1 - t) ** 3
 
 /** Below this the animation is indistinguishable from the target; snap instead. */
 const EPSILON = 1e-3
