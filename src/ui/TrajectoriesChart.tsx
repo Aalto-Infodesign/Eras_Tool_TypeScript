@@ -575,11 +575,11 @@ function ChartStats({
   const focused = focusedTypologyOf(selectedTypologies)
 
   // Sampled on a timer, not per frame, so the readout never drives the render loop.
-  const [frameMs, setFrameMs] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => setFrameMs(frameRef.current), 500)
-    return () => clearInterval(id)
-  }, [frameRef])
+  // const [frameMs, setFrameMs] = useState(0)
+  // useEffect(() => {
+  //   const id = setInterval(() => setFrameMs(frameRef.current), 500)
+  //   return () => clearInterval(id)
+  // }, [frameRef])
 
   return (
     <div className="chart__stats">
@@ -604,12 +604,12 @@ function ChartStats({
           clusters out of date
         </span>
       )}
-      <span>
+      {/* <span>
         geometry <b>{buildMs.toFixed(1)}ms</b>
       </span>
       <span>
         draw <b>{frameMs.toFixed(2)}ms</b>
-      </span>
+      </span> */}
       {/*
        * What the layer was *asked* to draw, beside what it drew. When the two
        * disagree — patients selected but no segments — the fault is between

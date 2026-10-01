@@ -60,26 +60,6 @@ export function ViewSwitcher(): React.JSX.Element | null {
   const view = useEras((s) => s.view)
   const setView = useEras((s) => s.setView)
 
-  /*
-   * Here rather than in the panel body, which unmounts when the panel folds: the
-   * keys must keep working with the thumbnail out of sight. Never out from under
-   * something that owns the key — a field being typed in, an open dialog — and
-   * never with a modifier, which belongs to the browser.
-   */
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.repeat) return
-      if (event.ctrlKey || event.metaKey || event.altKey) return
-      if (isEditable(event.target) || document.querySelector("dialog[open]") !== null) return
-      const next = KEYS[event.code]
-      if (next === undefined) return
-      event.preventDefault()
-      setView(next)
-    }
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
-  }, [setView])
-
   if (!hasData) return null
 
   const other: MainView = view === "sankey" ? "trajectories" : "sankey"
@@ -99,6 +79,33 @@ export function ViewSwitcher(): React.JSX.Element | null {
       )}
     </Panel>
   )
+}
+
+/**
+ * Keys 1 and 2 swap the main view.
+ *
+ * Not in `ViewSwitcher`: the side column can hide that panel, and the keys must
+ * keep working with it out of sight — so the column calls this, whatever it
+ * shows. Never out from under something that owns the key — a field being
+ * typed in, an open dialog — and never with a modifier, which belongs to the
+ * browser.
+ */
+export function useViewKeys(): void {
+  const setView = useEras((s) => s.setView)
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || event.repeat) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (isEditable(event.target) || document.querySelector("dialog[open]") !== null) return
+      const next = KEYS[event.code]
+      if (next === undefined) return
+      event.preventDefault()
+      setView(next)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [setView])
 }
 
 /** One `useSankey` for both the picture and its caption: the graph is built once. */

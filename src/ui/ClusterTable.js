@@ -1,0 +1,127 @@
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useEras } from "../app/store.ts";
+import { ClusterRunControl } from "./ClusterStale.tsx";
+import { Panel } from "./Panel.tsx";
+import { useClusterRun } from "./useClusterRun.ts";
+import { clusterMemberIds, clusterSummaryTsv, downloadText, membershipsTsv, safeFilename, } from "../core/cluster/export.ts";
+/**
+ * One row per typology, expandable to its clusters.
+ *
+ * Two things changed from the original table. It is windowed — only the rows
+ * near the viewport are mounted, because a real dataset has thousands of
+ * typologies and the original rendered every one of them. And each row is memoised
+ * on the *result object*, which is now referentially stable once a typology has
+ * finished, so a streamed result re-renders exactly one row instead of all of them.
+ */
+const ROW_HEIGHT = 30;
+const OVERSCAN = 8;
+export function ClusterTable() {
+    const store = useEras((s) => s.store);
+    const typologies = useEras((s) => s.typologies);
+    const clusterRun = useClusterRun();
+    const clusterVersion = useEras((s) => s.clusterVersion);
+    const status = useEras((s) => s.clusterStatus);
+    const selectedClusters = useEras((s) => s.selectedClusters);
+    const selectedTypologies = useEras((s) => s.selectedTypologies);
+    const toggleTypology = useEras((s) => s.toggleTypology);
+    const clearTypologies = useEras((s) => s.clearTypologies);
+    const progress = useEras((s) => s.clusterProgress);
+    const error = useEras((s) => s.clusterError);
+    const [sortKey, setSortKey] = useState("size");
+    const [expanded, setExpanded] = useState(null);
+    const [scrollTop, setScrollTop] = useState(0);
+    const [viewportHeight, setViewportHeight] = useState(320);
+    const rows = useMemo(() => {
+        const list = typologies.map((typology) => ({
+            typology,
+            result: clusterRun?.byTypology.get(typology.key) ?? null,
+        }));
+        switch (sortKey) {
+            case "name":
+                return list.sort((a, b) => a.typology.key.localeCompare(b.typology.key));
+            case "clusters":
+                return list.sort((a, b) => (b.result?.k ?? -1) - (a.result?.k ?? -1));
+            case "score":
+                return list.sort((a, b) => (b.result?.meanSilhouette ?? -Infinity) - (a.result?.meanSilhouette ?? -Infinity));
+            case "size":
+                return list.sort((a, b) => b.typology.size - a.typology.size);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [typologies, clusterRun, clusterVersion, sortKey]);
+    // Read by the reveal effect, which must not re-run when the sort changes.
+    const rowsRef = useRef(rows);
+    rowsRef.current = rows;
+    /*
+     * Reveal whatever was last isolated.
+     *
+     * The link between the chart and this panel used to run one way: pick a
+     * cluster here and the chart isolated it. Clicking a spine now goes the other
+     * way, and landing on a selection you cannot find in a windowed list of
+     * thousands is worse than no link at all — the ids export lives in the
+     * expanded row, so the row has to come to you.
+     *
+     * Keyed on the last selected cluster alone: re-sorting or a streamed result
+     * must not yank the list back to it while you are reading somewhere else.
+     */
+    const lastSelected = selectedClusters[selectedClusters.length - 1];
+    const bodyRef = useRef(null);
+    useEffect(() => {
+        if (lastSelected === undefined || clusterRun === null)
+            return;
+        const ref = clusterRun.clusters[lastSelected];
+        if (ref === undefined)
+            return;
+        setExpanded(ref.typologyKey);
+        const position = rowsRef.current.findIndex((row) => row.typology.key === ref.typologyKey);
+        if (position === -1)
+            return;
+        // A third of the way down rather than at the very top, so the rows around
+        // it stay visible and the jump reads as a scroll rather than a reset.
+        bodyRef.current?.scrollTo({
+            top: Math.max(0, position * ROW_HEIGHT - viewportHeight / 3),
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lastSelected]);
+    if (store === null)
+        return null;
+    const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN * 2;
+    const window = rows.slice(first, first + visibleCount);
+    const percent = progress.total === 0 ? 0 : (progress.done / progress.total) * 100;
+    return (_jsxs(Panel, { title: "Clusters", defaultOpen: true, className: "panel--table", count: _jsxs(_Fragment, { children: [selectedTypologies.length > 0 && (_jsx("em", { className: "panel__badge", children: selectedTypologies.length })), status, " \u00B7 ", progress.done, "/", progress.total] }), children: [_jsx("div", { className: "clusterbar", children: _jsx("div", { className: "clusterbar__fill", style: { width: `${percent}%` } }) }), error !== null && _jsx("p", { className: "loader__error", children: error }), _jsx(ClusterRunControl, {}), _jsxs("div", { className: "table__controls", children: [["size", "clusters", "score", "name"].map((key) => (_jsx("button", { type: "button", className: "button", "data-selected": sortKey === key, onClick: () => setSortKey(key), children: key }, key))), _jsxs("button", { type: "button", className: "button", disabled: selectedTypologies.length === 0, title: "Stop scoping the chart to the selected typologies", onClick: clearTypologies, children: ["Clear ", selectedTypologies.length > 0 ? selectedTypologies.length : ""] }), _jsx("button", { type: "button", className: "button", disabled: clusterRun === null || clusterRun.byTypology.size === 0, onClick: () => {
+                            if (clusterRun === null)
+                                return;
+                            downloadText("cluster_summary.tsv", clusterSummaryTsv(clusterRun.byTypology, store.ids), "text/tab-separated-values");
+                        }, children: "Export summary" })] }), _jsxs("div", { className: "table__head", children: [_jsx("span", { children: "Typology" }), _jsx("span", { children: "Size" }), _jsx("span", { children: "Clusters" }), _jsx("span", { children: "Score" }), _jsx("span", { children: "BW" }), _jsx("span", {})] }), _jsx("div", { className: "table__body", ref: (node) => {
+                    bodyRef.current = node;
+                    if (node !== null && node.clientHeight !== viewportHeight) {
+                        setViewportHeight(node.clientHeight);
+                    }
+                }, onScroll: (event) => setScrollTop(event.currentTarget.scrollTop), children: _jsx("div", { style: { height: rows.length * ROW_HEIGHT, position: "relative" }, children: _jsx("div", { style: { transform: `translateY(${first * ROW_HEIGHT}px)` }, children: window.map(({ typology, result }) => (_jsx(TypologyRow, { typologyKey: typology.key, size: typology.size, share: typology.share, steps: typology.states.length, result: result, isSelected: selectedTypologies.includes(typology.key), isExpanded: expanded === typology.key, onSelect: () => toggleTypology(typology.key), onToggle: () => setExpanded((c) => (c === typology.key ? null : typology.key)) }, typology.key))) }) }) }), expanded !== null && _jsx(ClusterDetail, { typologyKey: expanded })] }));
+}
+const TypologyRow = memo(function TypologyRow({ typologyKey, size, share, steps, result, isSelected, isExpanded, onSelect, onToggle, }) {
+    /*
+     * A one-state typology has no transitions, so it has no duration vector and
+     * the clusterer is never handed one. It is not pending and never will be —
+     * showing it the same "…" as a typology still in the queue reads as a run
+     * that never finishes.
+     */
+    const clusterable = steps >= 2;
+    const cell = (value) => (result !== null ? value : clusterable ? "…" : "—");
+    return (_jsxs("div", { className: "table__row", style: { height: ROW_HEIGHT }, "data-selected": isSelected, "data-expanded": isExpanded, "data-pending": result === null && clusterable, children: [_jsx("button", { type: "button", className: "table__select table__key", title: `${typologyKey} — click to scope the chart to it`, "aria-pressed": isSelected, onClick: onSelect, children: typologyKey }), _jsxs("span", { children: [size.toLocaleString(), _jsxs("em", { children: [(share * 100).toFixed(1), "%"] })] }), _jsx("span", { children: result === null ? cell("") : result.k }), _jsx("span", { children: cell(result === null ? "" : result.meanSilhouette.toFixed(3)) }), _jsx("span", { children: cell(result === null ? "" : result.bandwidth.toFixed(2)) }), _jsx("button", { type: "button", className: "table__expand", "aria-expanded": isExpanded, title: clusterable ? "Show this typology's clusters" : "Nothing to cluster", disabled: !clusterable, onClick: onToggle, children: isExpanded ? "▾" : "▸" })] }));
+});
+function ClusterDetail({ typologyKey }) {
+    const store = useEras((s) => s.store);
+    const clusterRun = useClusterRun();
+    const selectedClusters = useEras((s) => s.selectedClusters);
+    const toggleCluster = useEras((s) => s.toggleCluster);
+    const result = clusterRun?.byTypology.get(typologyKey) ?? null;
+    if (store === null || clusterRun === null || result === null)
+        return null;
+    const refs = clusterRun.clusters.filter((c) => c.typologyKey === typologyKey);
+    return (_jsxs("div", { className: "detail", children: [_jsxs("div", { className: "detail__head", children: [_jsx("strong", { children: typologyKey }), _jsx("button", { type: "button", className: "button", onClick: () => downloadText(`memberships_${safeFilename(typologyKey)}.tsv`, membershipsTsv(result, store.ids), "text/tab-separated-values"), children: "Memberships TSV" })] }), _jsx("ul", { className: "detail__clusters", children: refs.map((ref) => {
+                    const isMedian = ref.localCluster === result.medianCluster;
+                    return (_jsxs("li", { children: [_jsxs("button", { type: "button", className: "detail__cluster", "data-selected": selectedClusters.includes(ref.globalIndex), onClick: () => toggleCluster(ref.globalIndex), children: [_jsx("span", { className: "detail__medoid", children: store.ids.at(ref.medoidPatient) }), _jsx("span", { className: "detail__size", children: ref.size.toLocaleString() }), isMedian && _jsx("em", { className: "detail__median", children: "median" })] }), _jsx("button", { type: "button", className: "button button--tiny", title: `Export ${ref.size} member ids`, onClick: () => downloadText(`cluster_${safeFilename(typologyKey)}_${ref.localCluster}.txt`, clusterMemberIds(result, ref.localCluster, store.ids).join("\n"), "text/plain"), children: "ids" })] }, ref.globalIndex));
+                }) })] }));
+}

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 
 import { useEras } from "../app/store.ts"
+import { MAPPING_SUMMARY_ENABLED, TEMPLATES_ENABLED } from "@app/features.ts"
 
 const TEMPLATES = [
   { label: "Demo · 100", url: "/data/data_semilinear_dates.json" },
@@ -61,23 +62,24 @@ export function FileLoader(): React.JSX.Element {
         />
 
         <div className="loader__templates">
-          {TEMPLATES.map((template) => (
-            <button
-              key={template.url}
-              type="button"
-              className="button button--tiny"
-              onClick={() => void loadUrl(template.url)}
-              disabled={status === "loading"}
-            >
-              {template.label}
-            </button>
-          ))}
+          {TEMPLATES_ENABLED &&
+            TEMPLATES.map((template) => (
+              <button
+                key={template.url}
+                type="button"
+                className="button button--tiny"
+                onClick={() => void loadUrl(template.url)}
+                disabled={status === "loading"}
+              >
+                {template.label}
+              </button>
+            ))}
         </div>
+
+        {error !== null && <p className="loader__error">{error}</p>}
+
+        {mapping !== null && MAPPING_SUMMARY_ENABLED === true && <MappingSummary />}
       </div>
-
-      {error !== null && <p className="loader__error">{error}</p>}
-
-      {mapping !== null && <MappingSummary />}
     </section>
   )
 }

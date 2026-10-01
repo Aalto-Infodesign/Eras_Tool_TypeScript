@@ -23,4 +23,10 @@
  * (`ColorSource` already has the case) and the median-path ribbons in
  * `ui/RibbonLayer.tsx`.
  */
+
+// Clustering
 export const CLUSTERING_ENABLED: boolean = true
+
+// File Loader
+export const MAPPING_SUMMARY_ENABLED: boolean = false
+export const TEMPLATES_ENABLED: boolean = import.meta.env.DEV

@@ -2,6 +2,8 @@
   --bg: hsl(230 18% 9%);
   --surface: hsl(230 16% 13%);
   --surface-2: hsl(230 14% 17%);
+  /* A pinned side panel: a shade lifted and leaning toward the accent. */
+  --surface-pinned: hsl(250 16% 15.5%);
   --line: hsl(230 12% 24%);
   --text: hsl(230 18% 92%);
   --muted: hsl(230 10% 60%);
@@ -71,7 +73,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
-  overflow-y: auto;
   min-height: 0;
   /*
    * Without this the column is sized by its widest child rather than by the grid
@@ -86,7 +87,7 @@ body {
 .app__chart {
   display: flex;
   flex-direction: column;
-  gap: var(--gap);
+  gap: var(--gap-small);
   min-height: 0;
   min-width: 0;
 }
@@ -124,6 +125,7 @@ body {
 }
 
 .mapping {
+  font-size: 10px;
   margin-top: 8px;
   padding: 8px;
   border: 1px solid var(--line);
@@ -135,7 +137,7 @@ body {
 }
 .mapping__title {
   color: var(--muted);
-  font-size: 11px;
+  /* font-size: 11px; */
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -201,34 +203,67 @@ body {
 
 .controls {
   display: flex;
-  gap: var(--gap);
+  gap: 6px 18px;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
 }
+/* One row per group: the legend sits left of a segmented run of buttons rather
+   than on a line of its own above them. */
 .controls__group {
   display: flex;
-  gap: 4px;
+  gap: 0;
   align-items: center;
   border: none;
   margin: 0;
   padding: 0;
 }
+/* Floated, a legend leaves the fieldset's special legend slot and becomes an
+   ordinary flex item, so it lines up with the buttons. */
 .controls__group legend {
   float: left;
-  width: 100%;
+  margin-right: 8px;
+  padding: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  /* margin-bottom: 4px; */
 }
 .controls__group[disabled] {
   opacity: 0.4;
 }
-.controls__group--wide {
-  min-width: 220px;
+.controls__group .button {
+  position: relative;
+  padding: 3px 9px;
+  font-size: 12px;
+  border-radius: 0;
 }
-.controls__group--wide input {
+.controls__group .button + .button {
+  margin-left: -1px;
+}
+.controls__group .button:first-of-type {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.controls__group .button:last-of-type {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.controls__group .button:only-of-type {
+  border-radius: var(--radius);
+}
+/* Over its neighbours, so the overlapped border shows the hover all round. */
+.controls__group .button:hover:not(:disabled) {
+  z-index: 1;
+}
+.controls__settings {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  padding: 4px 6px;
+  color: var(--muted);
+}
+.controls__settings:hover {
+  color: var(--text);
+}
+.settings__range {
   -webkit-appearance: none; /* Override default CSS styles */
   appearance: none;
   flex: 1;
@@ -238,7 +273,7 @@ body {
   outline: none;
 }
 
-.controls__group--wide input::-webkit-slider-thumb {
+.settings__range::-webkit-slider-thumb {
   -webkit-appearance: none; /* Override default look */
   appearance: none;
   width: 15px; /* Set a specific slider handle width */
@@ -249,7 +284,7 @@ body {
   border: none;
 }
 
-.controls__group--wide input::-moz-range-thumb {
+.settings__range::-moz-range-thumb {
   width: 15px; /* Set a specific slider handle width */
   height: 15px; /* Slider handle height */
   background: var(--text); /* Green background */
@@ -281,9 +316,18 @@ body {
 
 .panel__header {
   display: flex;
+  align-items: center;
+  border-radius: var(--radius);
+}
+.panel__header:hover {
+  background: var(--surface-2);
+}
+.panel__toggle {
+  display: flex;
   align-items: baseline;
   gap: 8px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 10px;
   background: none;
   border: none;
@@ -293,8 +337,8 @@ body {
   text-align: left;
   cursor: pointer;
 }
-.panel__header:hover {
-  background: var(--surface-2);
+.panel__toggle:not(:last-child) {
+  padding-right: 4px;
 }
 .panel__header h2 {
   margin: 0;
@@ -310,7 +354,7 @@ body {
 
 .panel__chevron {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 15px;
   line-height: 1;
   transition: transform 120ms ease-out;
 }
@@ -335,6 +379,181 @@ body {
 
 .panel__count {
   font-family: ui-monospace, monospace;
+}
+
+/* Out of the way until the header is hovered, and always shown once pinned. */
+.panel__pin {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.panel__header:hover .panel__pin,
+.panel__pin:focus-visible,
+.panel__pin[aria-pressed="true"] {
+  opacity: 1;
+}
+.panel__pin:hover {
+  color: var(--text);
+  background: var(--line);
+}
+.panel__pin[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.panel[data-pinned="true"] {
+  background: var(--surface-pinned);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+
+/* ---------- side column ---------- */
+
+/* Pinned panels above, never scrolled away; the rest scroll beneath. The pinned
+   region scrolls too past a point, so pinning everything cannot push the rest
+   of the column off screen. */
+.side__pinned,
+.side__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+}
+.side__pinned {
+  flex: 0 1 auto;
+  max-height: 60%;
+}
+.side__scroll {
+  flex: 1 1 0;
+}
+.side__customize {
+  align-self: center;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.side__customize:hover {
+  color: var(--text);
+}
+
+/* ---------- settings ---------- */
+
+.modal.modal--settings {
+  width: min(440px, 94vw);
+}
+/* Light and unblurred: the opacity slider is judged against the chart behind. */
+.modal.modal--settings::backdrop {
+  background: hsl(230 20% 5% / 0.25);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.settings__section + .settings__section {
+  margin-top: 18px;
+}
+.settings__section h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.settings__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings__row[data-disabled="true"] {
+  opacity: 0.5;
+}
+.settings__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 150px;
+}
+.settings__label small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.settings__hint {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.settings__panels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.settings__panel {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px 3px 10px;
+}
+.settings__panel + .settings__panel {
+  border-top: 1px solid var(--line);
+}
+.settings__panel[data-hidden="true"] .settings__check {
+  color: var(--muted);
+}
+.settings__check {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.settings__check input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.settings__icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.settings__icon:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line);
+}
+.settings__icon:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.settings__icon[aria-pressed="true"] {
+  color: var(--accent);
+}
+.settings__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 /* ---------- filters ---------- */

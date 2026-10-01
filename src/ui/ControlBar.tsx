@@ -1,5 +1,6 @@
 import { CLUSTERING_ENABLED } from "../app/features.ts"
-import { chartModeOf, useEras, type ChartLayer, type MainView } from "../app/store.ts"
+import { useSidePanels } from "../app/sidePanels.ts"
+import { useEras, type ChartLayer, type MainView } from "../app/store.ts"
 import type { XAxis } from "../core/render/geometry.ts"
 import type { SankeyOrder } from "../core/render/sankeyLayout.ts"
 import { useClusterRun } from "./useClusterRun.ts"
@@ -58,26 +59,12 @@ export function ControlBar(): React.JSX.Element {
   const axis = useEras((s) => s.axis)
   const setAxis = useEras((s) => s.setAxis)
 
-  const opacity = useEras((s) => s.opacity)
-  const setOpacity = useEras((s) => s.setOpacity)
-
   const layers = useEras((s) => s.layers)
   const toggleLayer = useEras((s) => s.toggleLayer)
   const clusterRun = useClusterRun()
   const clusterStatus = useEras((s) => s.clusterStatus)
-  const selectedTypologies = useEras((s) => s.selectedTypologies)
 
   const hasClusters = clusterRun !== null && clusterRun.clusters.length > 0
-  /*
-   * The grid draws every panel's own cohort whatever the Lines toggle says —
-   * those hairlines *are* the panel, the thing whose slope is being compared,
-   * not a layer over something else. So the slider still governs them there,
-   * where in the single chart it belongs to a layer you can switch off.
-   */
-  const isGrid = chartModeOf(selectedTypologies) === "multiples"
-  // The hairlines step back under anything drawn over them, and the slider
-  // changes meaning with them. See `ViewState.bulkFade`.
-  const isBackdrop = (layers.lines || isGrid) && (layers.medoids || layers.lumps)
 
   /*
    * Everything else here belongs to the trajectories: the Sankey has no x axis,
@@ -89,6 +76,7 @@ export function ControlBar(): React.JSX.Element {
       <div className="controls">
         <ViewGroup />
         <OrderGroup />
+        <SettingsButton />
       </div>
     )
   }
@@ -155,31 +143,8 @@ export function ControlBar(): React.JSX.Element {
         )}
       </fieldset>
 
-      {/*
-       * The slider belongs to the hairlines and is disabled without them — lumps
-       * carry their own fill and a thousand medoid spines have nothing to
-       * overplot. Its *meaning* changes when they become a backdrop: the same
-       * direction, but mixing into the background instead of stacking alpha.
-       */}
-      <fieldset
-        className="controls__group controls__group--wide"
-        disabled={!layers.lines && !isGrid}
-      >
-        <legend
-          title={isBackdrop ? "Mixed into the background, so crossings do not stack" : undefined}
-        >
-          {isBackdrop ? "Line backdrop" : "Line opacity"}
-        </legend>
-        <input
-          type="range"
-          min={0.02}
-          max={1}
-          step={0.01}
-          value={opacity}
-          onChange={(event) => setOpacity(Number(event.target.value))}
-        />
-        <span className="controls__value">{layers.lines || isGrid ? opacity.toFixed(2) : "—"}</span>
-      </fieldset>
+      {/* Line opacity lives in the settings dialog — see `SettingsModal`. */}
+      <SettingsButton />
     </div>
   )
 }
@@ -228,5 +193,28 @@ function OrderGroup(): React.JSX.Element {
         </button>
       ))}
     </fieldset>
+  )
+}
+
+/** Last in the bar, pushed to its far end: the settings that do not earn a place on it. */
+function SettingsButton(): React.JSX.Element {
+  const setSettingsOpen = useSidePanels((s) => s.setSettingsOpen)
+
+  return (
+    <button
+      type="button"
+      className="button controls__settings"
+      aria-label="Settings"
+      title="Settings — line opacity, side panels"
+      onClick={() => setSettingsOpen(true)}
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path
+          fill="currentColor"
+          fillRule="evenodd"
+          d="M6.9 1h2.2l.4 1.9c.4.1.8.3 1.1.5l1.6-1 1.5 1.5-1 1.6c.2.3.4.7.5 1.1l1.9.4v2.2l-1.9.4c-.1.4-.3.8-.5 1.1l1 1.6-1.5 1.5-1.6-1c-.3.2-.7.4-1.1.5L9.1 15H6.9l-.4-1.9c-.4-.1-.8-.3-1.1-.5l-1.6 1-1.5-1.5 1-1.6c-.2-.3-.4-.7-.5-1.1L1 9.1V6.9l1.9-.4c.1-.4.3-.8.5-1.1l-1-1.6 1.5-1.5 1.6 1c.3-.2.7-.4 1.1-.5L6.9 1ZM8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8Z"
+        />
+      </svg>
+    </button>
   )
 }

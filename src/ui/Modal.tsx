@@ -6,6 +6,8 @@ interface Props {
   readonly onClose: () => void
   /** Right of the title, on the header row. */
   readonly toolbar?: React.ReactNode
+  /** Added to `modal`, for a dialog that is not the default wide one. */
+  readonly className?: string
   readonly children: React.ReactNode
 }
 
@@ -25,7 +27,14 @@ interface Props {
  * Children mount only while open. The path explorer builds a trie and paints a
  * canvas; neither should happen for a dialog nobody has opened.
  */
-export function Modal({ open, title, onClose, toolbar, children }: Props): React.JSX.Element {
+export function Modal({
+  open,
+  title,
+  onClose,
+  toolbar,
+  className,
+  children,
+}: Props): React.JSX.Element {
   const ref = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -39,7 +48,7 @@ export function Modal({ open, title, onClose, toolbar, children }: Props): React
   return (
     <dialog
       ref={ref}
-      className="modal"
+      className={`modal ${className ?? ""}`}
       // The dialog element covers the whole viewport; its children do not. So a
       // click whose target is the element itself landed on the backdrop.
       onClick={(event) => {
