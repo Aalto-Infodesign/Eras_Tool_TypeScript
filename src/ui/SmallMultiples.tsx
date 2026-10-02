@@ -311,7 +311,10 @@ export function SmallMultiples({
     const panel = panels.findIndex((candidate) => candidate.typology.key === ref.typologyKey)
     if (panel === -1) return null
 
-    return { panel, geometry: buildGeometry(store, Uint32Array.of(ref.medoidPatient), panelOptions) }
+    return {
+      panel,
+      geometry: buildGeometry(store, Uint32Array.of(ref.medoidPatient), panelOptions),
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, showSpines, pointedCluster, clusterRun, clusterVersion, panels, panelOptions])
 
@@ -358,10 +361,7 @@ export function SmallMultiples({
 
   const columns = Math.max(
     1,
-    Math.min(
-      panels.length || 1,
-      isDetailed ? DETAILED_COLUMNS : COMPACT_COLUMNS,
-    ),
+    Math.min(panels.length || 1, isDetailed ? DETAILED_COLUMNS : COMPACT_COLUMNS),
   )
   const panelWidth = Math.floor((width - PANEL_GAP * (columns - 1)) / Math.max(columns, 1))
   const gridRows = Math.ceil(panels.length / Math.max(columns, 1))
@@ -657,10 +657,10 @@ export function SmallMultiples({
     <div className="multiples">
       <div className="multiples__grid" style={{ height }}>
         {/*
-          * Three layers, one grid. Only the middle one carries the cost, and it
-          * is the one a hover never touches: the dim is a composited opacity on
-          * an element whose pixels the browser already has.
-          */}
+         * Three layers, one grid. Only the middle one carries the cost, and it
+         * is the one a hover never touches: the dim is a composited opacity on
+         * an element whose pixels the browser already has.
+         */}
         <canvas ref={rulesRef} className="multiples__canvas" style={{ width, height }} />
         <canvas
           ref={linesRef}
@@ -757,8 +757,8 @@ export function SmallMultiples({
 
       {hiddenCount > 0 && (
         <p className="multiples__more">
-          +{hiddenCount.toLocaleString()} more — a grid past {MAX_PANELS} panels is no more
-          readable than the overlay it replaced.
+          +{hiddenCount.toLocaleString()} more — a grid past {MAX_PANELS} panels is no more readable
+          than the overlay it replaced.
         </p>
       )}
     </div>

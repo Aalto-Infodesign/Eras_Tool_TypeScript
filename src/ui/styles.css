@@ -1,26 +1,108 @@
+/*
+ * Colour comes in two layers.
+ *
+ * Primitives are the palette: raw values named for what they *are* (a grey at
+ * some lightness, a violet), never for where they go. Only the theme blocks
+ * below read them.
+ *
+ * Tokens are named for what they *do* (`--surface`, `--muted`, `--on-accent`)
+ * and are the only colours the rest of this file uses. A theme is one block
+ * that points every token at a primitive, so a new theme is a new block and
+ * nothing else in the file changes. A literal colour, or a primitive, used
+ * outside a theme block is a theme that will not switch.
+ */
+
+/* ---------- primitives ---------- */
+
 :root {
-  --bg: hsl(230 18% 9%);
-  --surface: hsl(230 16% 13%);
-  --surface-2: hsl(230 14% 17%);
-  /* A pinned side panel: a shade lifted and leaning toward the accent. */
-  --surface-pinned: hsl(250 16% 15.5%);
-  --line: hsl(230 12% 24%);
-  --text: hsl(230 18% 92%);
-  --muted: hsl(230 10% 60%);
-  --accent: #9473d2;
-  --danger: hsl(6 80% 64%);
+  /* Cool greys, hue 230. The number tracks darkness, light to dark. */
+  --gray-0: hsl(0 0% 100%);
+  --gray-50: hsl(230 20% 96%);
+  --gray-100: hsl(230 18% 92%);
+  --gray-200: hsl(230 14% 84%);
+  --gray-400: hsl(230 10% 60%);
+  --gray-600: hsl(230 10% 42%);
+  --gray-700: hsl(230 12% 24%);
+  --gray-800: hsl(230 14% 17%);
+  --gray-850: hsl(230 16% 13%);
+  --gray-900: hsl(230 18% 9%);
+  --gray-950: hsl(230 20% 5%);
+
+  --violet-400: #9473d2;
+  --violet-600: hsl(262 46% 48%);
+
+  --red-400: hsl(6 80% 64%);
+  --red-600: hsl(6 68% 46%);
+}
+
+/* ---------- foundation ---------- */
+
+/* Not colour, so the same in every theme. */
+:root {
   --radius: 6px;
   --gap: 1rem;
   --gap-small: 0.5rem;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  color-scheme: dark;
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--font-ui);
   font-size: 13px;
+}
+
+/* ---------- tokens: dark (default) ---------- */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Page, then the panels and chart on it, then controls on those. */
+  --bg: var(--gray-900);
+  --surface: var(--gray-850);
+  --surface-2: var(--gray-800);
+  /* A pinned side panel: a shade leaning toward the accent. */
+  --surface-pinned: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  --line: var(--gray-700);
+
+  --text: var(--gray-100);
+  --muted: var(--gray-400);
+
+  --accent: var(--violet-400);
+  /* Text and icons drawn on an accent fill: selected buttons, badges. */
+  --on-accent: var(--gray-900);
+  --danger: var(--red-400);
+
+  /* Behind a modal; the light one leaves the chart readable behind settings. */
+  --backdrop: color-mix(in srgb, var(--gray-950) 60%, transparent);
+  --backdrop-light: color-mix(in srgb, var(--gray-950) 25%, transparent);
+  --shadow: color-mix(in srgb, var(--gray-950) 55%, transparent);
+}
+
+/* ---------- tokens: light ---------- */
+
+/*
+ * Opt-in with `data-theme="light"` on <html>; nothing sets it yet. The CSS side
+ * is complete, but some chart colours are still decided in TypeScript (the
+ * canvas strokes in `StackedLines`, the background `TrajectoriesChart` samples
+ * once on mount), so it is not offered until those read tokens too.
+ */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: var(--gray-50);
+  --surface: var(--gray-0);
+  --surface-2: var(--gray-100);
+  --surface-pinned: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  --line: var(--gray-200);
+
+  --text: var(--gray-850);
+  --muted: var(--gray-600);
+
+  --accent: var(--violet-600);
+  --on-accent: var(--gray-0);
+  --danger: var(--red-600);
+
+  --backdrop: color-mix(in srgb, var(--gray-950) 35%, transparent);
+  --backdrop-light: color-mix(in srgb, var(--gray-950) 12%, transparent);
+  --shadow: color-mix(in srgb, var(--gray-950) 18%, transparent);
 }
 
 * {
@@ -37,27 +119,6 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-}
-
-.app__header {
-  display: flex;
-  align-items: center;
-
-  gap: var(--gap);
-  padding: var(--gap-small) var(--gap);
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-}
-
-.app__header h1 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.app__header h1 span {
-  color: var(--muted);
-  font-weight: 400;
 }
 
 .app__main {
@@ -93,17 +154,36 @@ body {
 }
 
 .app__empty {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-small);
   flex: 1;
   color: var(--muted);
+}
+.app__empty p {
+  margin: 0 0 var(--gap-small);
+}
+.app__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+.app__title span {
+  color: var(--muted);
+  font-weight: 400;
+}
+/* The whole landing is the drop zone's job, so give it a target worth aiming at. */
+.app__empty .loader {
+  padding: 28px 36px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
 }
 
 /* ---------- loader ---------- */
 
-.loader {
-  flex: 1;
-}
 .loader--dragging {
   outline: 1px dashed var(--accent);
   outline-offset: 4px;
@@ -122,6 +202,17 @@ body {
 .loader__error {
   color: var(--danger);
   margin: 8px 0 0;
+}
+.panel__summary .loader__error {
+  margin: 0;
+  font-size: 11px;
+}
+/* A file name can be long; the header keeps its one line. */
+.panel--data .panel__count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mapping {
@@ -189,13 +280,13 @@ body {
 }
 .button--primary {
   background: var(--accent);
-  color: hsl(230 20% 10%);
+  color: var(--on-accent);
   border-color: transparent;
   font-weight: 600;
 }
 .button[data-selected="true"] {
   background: var(--accent);
-  color: hsl(230 20% 10%);
+  color: var(--on-accent);
   border-color: transparent;
 }
 
@@ -254,7 +345,6 @@ body {
   z-index: 1;
 }
 .controls__settings {
-  margin-left: auto;
   display: grid;
   place-items: center;
   padding: 4px 6px;
@@ -459,7 +549,7 @@ body {
 }
 /* Light and unblurred: the opacity slider is judged against the chart behind. */
 .modal.modal--settings::backdrop {
-  background: hsl(230 20% 5% / 0.25);
+  background: var(--backdrop-light);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -564,7 +654,7 @@ body {
   padding: 1px 5px;
   border-radius: 999px;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
   font-size: 10px;
 }
 
@@ -1066,7 +1156,7 @@ body {
   }
 }
 .modal::backdrop {
-  background: hsl(230 20% 5% / 0.6);
+  background: var(--backdrop);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
 }
@@ -1592,9 +1682,20 @@ body {
 
 .chart__stats {
   display: flex;
-  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
   color: var(--muted);
   font-family: ui-monospace, monospace;
+}
+/* The chart's own controls close the row, flush right, so the gear that ends
+   them sits in the corner. */
+.chart__stats > .controls {
+  margin-left: auto;
+  font-family: var(--font-ui);
+}
+.sankey__history + .controls {
+  margin-left: 18px;
 }
 .chart__stats b {
   color: var(--text);
@@ -1619,6 +1720,8 @@ body {
 .multiples__canvas {
   position: absolute;
   inset: 0;
+  top: var(--gap-small);
+
   /* Pointer events belong to the panel buttons layered over it. */
   pointer-events: none;
 }
@@ -1649,7 +1752,7 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1722,7 +1825,7 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
-  box-shadow: 0 4px 16px hsl(230 30% 4% / 0.55);
+  box-shadow: 0 4px 16px var(--shadow);
   font-family: ui-monospace, monospace;
   font-size: 11px;
   line-height: 1.45;
@@ -1784,7 +1887,7 @@ body {
 }
 .chart__stats-isolated:hover {
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
 }
 .chart__stats-kind {
   margin-left: auto;
@@ -2209,7 +2312,7 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
-  box-shadow: 0 4px 16px hsl(230 30% 4% / 0.55);
+  box-shadow: 0 4px 16px var(--shadow);
   font-family: ui-monospace, monospace;
   font-size: 11px;
   line-height: 1.45;
@@ -2510,7 +2613,7 @@ body {
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--accent);
-  color: hsl(230 20% 10%);
+  color: var(--on-accent);
   font-size: 11px;
   font-weight: 600;
   opacity: 0;

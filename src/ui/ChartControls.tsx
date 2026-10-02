@@ -1,27 +1,9 @@
 import { CLUSTERING_ENABLED } from "../app/features.ts"
 import { useSidePanels } from "../app/sidePanels.ts"
-import { useEras, type ChartLayer, type MainView } from "../app/store.ts"
+import { useEras, type ChartLayer } from "../app/store.ts"
 import type { XAxis } from "../core/render/geometry.ts"
 import type { SankeyOrder } from "../core/render/sankeyLayout.ts"
 import { useClusterRun } from "./useClusterRun.ts"
-
-/**
- * The same swap as the View panel's thumbnail, as words. The thumbnail shows
- * what the other view would look like; this says which one you are in. Keys 1
- * and 2 do it too, so the titles say so.
- */
-const VIEWS: readonly { value: MainView; label: string; title: string }[] = [
-  {
-    value: "sankey",
-    label: "Sankey",
-    title: "Every typology as a flow from step to step · key 1",
-  },
-  {
-    value: "trajectories",
-    label: "Trajectories",
-    title: "The typologies themselves, as small multiples or one on its own steps · key 2",
-  },
-]
 
 /** See `SankeyOrder`. By state first: it is the default, and the app's convention. */
 const ORDERS: readonly { value: SankeyOrder; label: string; title: string }[] = [
@@ -53,7 +35,14 @@ const LAYERS: readonly { value: ChartLayer; label: string }[] = [
   { value: "medoids", label: "Medoids" },
 ]
 
-export function ControlBar(): React.JSX.Element {
+/**
+ * The current chart's own controls, at the end of its stats row: under the x
+ * axis it switches, and out of the plot so nothing is covered. The gear comes
+ * last, which puts it in the bottom-right corner.
+ *
+ * Which chart is big is not chosen here — the View panel and keys 1 / 2 do that.
+ */
+export function ChartControls(): React.JSX.Element {
   const view = useEras((s) => s.view)
 
   const axis = useEras((s) => s.axis)
@@ -74,7 +63,6 @@ export function ControlBar(): React.JSX.Element {
   if (view === "sankey") {
     return (
       <div className="controls">
-        <ViewGroup />
         <OrderGroup />
         <SettingsButton />
       </div>
@@ -83,8 +71,6 @@ export function ControlBar(): React.JSX.Element {
 
   return (
     <div className="controls">
-      <ViewGroup />
-
       <fieldset className="controls__group">
         <legend>X axis</legend>
         {AXES.map((option) => (
@@ -149,30 +135,6 @@ export function ControlBar(): React.JSX.Element {
   )
 }
 
-/** First in the bar whichever view is showing, so it never moves under the pointer. */
-function ViewGroup(): React.JSX.Element {
-  const view = useEras((s) => s.view)
-  const setView = useEras((s) => s.setView)
-
-  return (
-    <fieldset className="controls__group">
-      <legend>View</legend>
-      {VIEWS.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          className="button"
-          data-selected={view === option.value}
-          title={option.title}
-          onClick={() => setView(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </fieldset>
-  )
-}
-
 function OrderGroup(): React.JSX.Element {
   const sankeyOrder = useEras((s) => s.sankeyOrder)
   const setSankeyOrder = useEras((s) => s.setSankeyOrder)
@@ -196,7 +158,7 @@ function OrderGroup(): React.JSX.Element {
   )
 }
 
-/** Last in the bar, pushed to its far end: the settings that do not earn a place on it. */
+/** Last in the row, so in the corner: the settings that do not earn a place on screen. */
 function SettingsButton(): React.JSX.Element {
   const setSettingsOpen = useSidePanels((s) => s.setSettingsOpen)
 

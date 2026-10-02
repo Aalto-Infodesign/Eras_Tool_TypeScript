@@ -433,7 +433,7 @@ const initial = {
   selectedTypologies: [],
   pathPrefix: [],
   selectionHistory: emptyHistory,
-  view: "sankey" as MainView,
+  view: "trajectories" as MainView,
   sankeyOrder: "state" as SankeyOrder,
   sankeyMetric: "duration" as SankeyMetric,
   sankeyPin: null,

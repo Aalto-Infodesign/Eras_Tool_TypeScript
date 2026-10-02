@@ -2,6 +2,7 @@ import { useMemo } from "react"
 
 import { isAvailable, useSidePanels, type PanelId } from "../app/sidePanels.ts"
 import { ClusterTable } from "./ClusterTable.tsx"
+import { DataPanel } from "./FileLoader.tsx"
 import { FiltersPanel } from "./FiltersPanel.tsx"
 import { PanelSlotContext, type PanelSlot } from "./Panel.tsx"
 import { PathExplorer } from "./PathExplorer.tsx"
@@ -11,6 +12,7 @@ import { TypologyList } from "./TypologyList.tsx"
 import { useViewKeys, ViewSwitcher } from "./ViewSwitcher.tsx"
 
 const COMPONENTS: Readonly<Record<PanelId, () => React.JSX.Element | null>> = {
+  data: DataPanel,
   view: ViewSwitcher,
   ingest: PerfHud,
   states: StatesPanel,

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react"
 
 import { useEras } from "../app/store.ts"
 import { MAPPING_SUMMARY_ENABLED, TEMPLATES_ENABLED } from "@app/features.ts"
+import { Panel } from "./Panel.tsx"
 
 const TEMPLATES = [
   { label: "Demo · 100", url: "/data/data_semilinear_dates.json" },
@@ -9,9 +10,39 @@ const TEMPLATES = [
   { label: "Stress · 250k", url: "/data/generated/data_250k.json" },
 ] as const
 
-export function FileLoader(): React.JSX.Element {
-  const status = useEras((s) => s.status)
+/**
+ * The loader as a side panel, once a dataset is open. The file name rides in
+ * the header so it stays visible folded, and so does a load error: a failed
+ * replace leaves the old data on screen, which must not pass for success.
+ */
+export function DataPanel(): React.JSX.Element {
   const fileName = useEras((s) => s.fileName)
+  const error = useEras((s) => s.error)
+
+  return (
+    <Panel
+      title="Data"
+      count={fileName ?? undefined}
+      defaultOpen
+      className="panel--data"
+      summary={error !== null ? <p className="loader__error">{error}</p> : undefined}
+    >
+      <FileLoader showError={false} />
+    </Panel>
+  )
+}
+
+/**
+ * Upload, drop, or pick a sample. On its own on the empty screen before
+ * anything is loaded, and inside `DataPanel` after.
+ */
+export function FileLoader({
+  showError = true,
+}: {
+  /** Off inside `DataPanel`, which shows the error in its header instead. */
+  readonly showError?: boolean
+}): React.JSX.Element {
+  const status = useEras((s) => s.status)
   const error = useEras((s) => s.error)
   const mapping = useEras((s) => s.mapping)
   const loadFile = useEras((s) => s.loadFile)
@@ -47,7 +78,7 @@ export function FileLoader(): React.JSX.Element {
           onClick={() => inputRef.current?.click()}
           disabled={status === "loading"}
         >
-          {status === "loading" ? "Loading…" : (fileName ?? "Upload dataset")}
+          {status === "loading" ? "Loading…" : "Upload dataset"}
         </button>
 
         <input
@@ -76,7 +107,7 @@ export function FileLoader(): React.JSX.Element {
             ))}
         </div>
 
-        {error !== null && <p className="loader__error">{error}</p>}
+        {showError && error !== null && <p className="loader__error">{error}</p>}
 
         {mapping !== null && MAPPING_SUMMARY_ENABLED === true && <MappingSummary />}
       </div>

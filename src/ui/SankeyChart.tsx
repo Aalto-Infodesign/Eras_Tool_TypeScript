@@ -54,6 +54,7 @@ import {
   SankeyOverlay,
   type SankeyExiting,
 } from "./SankeyGraphic.tsx"
+import { ChartControls } from "./ChartControls.tsx"
 import { createHoverSettler } from "./hover.ts"
 import { DURATION_MS, ease } from "./useAnimatedView.ts"
 import { useElementSize } from "./useRenderer.ts"
@@ -1521,6 +1522,7 @@ function SankeyStats({
           ↷
         </button>
       </span>
+      <ChartControls />
     </div>
   )
 }

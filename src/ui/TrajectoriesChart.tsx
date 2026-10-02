@@ -6,6 +6,7 @@ import { SegmentIndex } from "../core/render/picking.ts"
 import type { Palette } from "../core/render/palette.ts"
 import type { ViewState } from "../core/render/Renderer.ts"
 import { repeatedSteps } from "../core/stats/silhouettes.ts"
+import { ChartControls } from "./ChartControls.tsx"
 import { ChartGrid } from "./ChartGrid.tsx"
 import { LumpLayer } from "./LumpLayer.tsx"
 import { SmallMultiples } from "./SmallMultiples.tsx"
@@ -518,7 +519,6 @@ export function TrajectoriesChart(): React.JSX.Element {
           palette={statePalette}
         />
       </div>
-
       <ChartStats
         rowCount={rowStates.length}
         isIsolated={isIsolated}
@@ -647,6 +647,7 @@ function ChartStats({
       )}
       {/* <span className="chart__stats-kind">{rendererKind}</span> */}
       {indexing && <span className="chart__stats-pending">indexing…</span>}
+      <ChartControls />
     </div>
   )
 }

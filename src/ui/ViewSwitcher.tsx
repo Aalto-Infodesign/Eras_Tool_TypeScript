@@ -52,8 +52,9 @@ function isEditable(target: EventTarget | null): boolean {
  * The thumbnail is the switch. It is one button — nothing inside it takes focus
  * or the pointer — and it shows what clicking would actually open: the Sankey
  * of the current selection, or the grid's first panels (the one typology, when
- * one is chosen). The ControlBar carries the same choice as text, and 1 / 2
- * work from anywhere, as they did in the original.
+ * one is chosen). It is the only on-screen switch — the chart controls no
+ * longer carry one, which is why the column will not hide this panel — and
+ * 1 / 2 work from anywhere, as they did in the original.
  */
 export function ViewSwitcher(): React.JSX.Element | null {
   const hasData = useEras((s) => s.store !== null)

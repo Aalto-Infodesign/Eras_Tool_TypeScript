@@ -1,4 +1,4 @@
-import { isAvailable, PANELS, useSidePanels, type PanelId } from "../app/sidePanels.ts"
+import { isAvailable, isRequired, PANELS, useSidePanels, type PanelId } from "../app/sidePanels.ts"
 import { chartModeOf, useEras } from "../app/store.ts"
 import { Modal } from "./Modal.tsx"
 import { PinIcon } from "./Panel.tsx"
@@ -7,8 +7,8 @@ const TITLES = new Map(PANELS.map((panel) => [panel.id, panel.title]))
 
 /**
  * The settings that do not earn a place on screen: tuning the chart, and
- * arranging the side column. One dialog for both, opened from the gear at the
- * end of the control bar or from the foot of the column.
+ * arranging the side column. One dialog for both, opened from the gear in the
+ * chart's bottom-right corner or from the foot of the column.
  *
  * The backdrop is lighter than the other dialogs' and unblurred, so the opacity
  * slider can be judged against the chart behind it.
@@ -109,10 +109,14 @@ function PanelSettings(): React.JSX.Element {
           const isPinned = pinned.includes(id)
           return (
             <li key={id} className="settings__panel" data-hidden={!isVisible}>
-              <label className="settings__check">
+              <label
+                className="settings__check"
+                title={isRequired(id) ? "Always shown — it can be moved, pinned or folded" : undefined}
+              >
                 <input
                   type="checkbox"
                   checked={isVisible}
+                  disabled={isRequired(id)}
                   onChange={(event) => setVisible(id, event.target.checked)}
                 />
                 {title}
