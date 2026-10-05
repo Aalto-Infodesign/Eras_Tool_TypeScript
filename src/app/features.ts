@@ -29,4 +29,5 @@ export const CLUSTERING_ENABLED: boolean = true
 
 // File Loader
 export const MAPPING_SUMMARY_ENABLED: boolean = false
-export const TEMPLATES_ENABLED: boolean = import.meta.env.DEV
+export const TEMPLATES_ENABLED: boolean = true
+// export const TEMPLATES_ENABLED: boolean = import.meta.env.DEV
