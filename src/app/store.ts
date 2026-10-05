@@ -24,7 +24,7 @@ import {
   type SelectionSnapshot,
 } from "../core/query/history.ts"
 import { Selection } from "../core/query/Selection.ts"
-import { startsWithPath } from "../core/stats/pathTree.ts"
+import { matchesSteps, type PathSteps } from "../core/stats/pathTree.ts"
 import { buildDistributions, type FilterDistributions } from "../core/stats/distributions.ts"
 import { samePin, type SankeyMetric, type SankeyPin } from "../core/stats/sankey.ts"
 import { summariseStates } from "../core/stats/states.ts"
@@ -205,17 +205,18 @@ interface ErasState {
   distributions: FilterDistributions | null
   selectedTypologies: readonly string[]
   /**
-   * The path explorer's position: state ids from the first step down.
+   * The path explorer's position: for each step from the first, the states
+   * picked there — see `PathSteps`.
    *
    * `selectedTypologies` is derived from it whenever it is non-empty — every
-   * typology whose sequence starts with it — so the path is a *way of choosing*
+   * typology whose sequence passes through it — so the path is a *way of choosing*
    * typologies rather than a second kind of selection the chart would have to
    * know about. Kept here rather than in the panel because the panel folds away
    * and the selection it made does not.
    */
-  pathPrefix: readonly number[]
+  pathSteps: PathSteps
   /**
-   * Undo and redo over `selectedTypologies`, `pathPrefix` and
+   * Undo and redo over `selectedTypologies`, `pathSteps` and
    * `selectedClusters` — see `core/query/history.ts`.
    *
    * Every action that changes the selection pushes the one it replaced, because
@@ -225,6 +226,17 @@ interface ErasState {
    * it holds stop naming anything.
    */
   selectionHistory: SelectionHistory
+
+  /**
+   * Whether the user is past the landing that follows the first load.
+   *
+   * Between the upload and the charts sits one choice: go straight in, or walk
+   * the path explorer first to say what you expect to find. Kept across loads,
+   * like `view` — replacing the file from the Data panel is not a fresh start,
+   * and bouncing back to the landing would throw away the layout around it.
+   * `reset` puts it back.
+   */
+  workspaceOpen: boolean
 
   /**
    * Which chart fills the main column — see `MainView`.
@@ -348,8 +360,8 @@ interface ErasState {
    * Sankey's "Open in Trajectories".
    */
   drillDown(keys: readonly string[]): void
-  /** Walks the path explorer to `prefix`; `[]` steps back to the whole cohort. */
-  selectPath(prefix: readonly number[]): void
+  /** Walks the path explorer to `steps`; `[]` steps back to the whole cohort. */
+  selectPath(steps: PathSteps): void
   /** Puts back the selection the last selection-changing action replaced. */
   undoSelection(): void
   /** Re-applies the selection the last `undoSelection` took back. */
@@ -366,6 +378,8 @@ interface ErasState {
   setHoveredCluster(cluster: number | null): void
   togglePatient(patient: number): void
 
+  /** Leaves the landing for the charts. */
+  openWorkspace(): void
   setView(view: MainView): void
   setSankeyOrder(order: SankeyOrder): void
   setSankeyMetric(metric: SankeyMetric): void
@@ -431,8 +445,9 @@ const initial = {
   filters: emptyFilters,
   distributions: null,
   selectedTypologies: [],
-  pathPrefix: [],
+  pathSteps: [],
   selectionHistory: emptyHistory,
+  workspaceOpen: false,
   view: "trajectories" as MainView,
   sankeyOrder: "state" as SankeyOrder,
   sankeyMetric: "duration" as SankeyMetric,
@@ -623,7 +638,7 @@ export const useEras = create<ErasState>()((set, get) => {
       distributions,
       // A splice merges typologies, so a selected key can simply cease to exist.
       selectedTypologies: reshaped ? [] : selectedTypologies.filter((key) => keys.has(key)),
-      pathPrefix: reshaped ? [] : get().pathPrefix,
+      pathSteps: reshaped ? [] : get().pathSteps,
       // Both index a run that no longer describes anything on screen: a global
       // cluster index means nothing once the typologies behind it have merged.
       selectedClusters: reshaped ? [] : get().selectedClusters,
@@ -701,7 +716,7 @@ export const useEras = create<ErasState>()((set, get) => {
       // A new file is the global reset signal, as it was in the original.
       filters: emptyFilters,
       selectedTypologies: [],
-      pathPrefix: [],
+      pathSteps: [],
       selectedPatients: [],
       hoveredPatient: null,
       xDomainOverride: null,
@@ -814,7 +829,7 @@ export const useEras = create<ErasState>()((set, get) => {
           // Picking a card by hand makes the selection something no prefix
           // describes, and a breadcrumb that no longer matches the selection is
           // worse than no breadcrumb.
-          pathPrefix: [],
+          pathSteps: [],
           // A cluster belongs to one typology's ladder; changing which typology
           // is drawn abandons it rather than plotting it against another.
           selectedClusters: [],
@@ -829,7 +844,7 @@ export const useEras = create<ErasState>()((set, get) => {
       set(
         withHistory({
           selectedTypologies: [...keys],
-          pathPrefix: [],
+          pathSteps: [],
           selectedClusters: [],
           hoveredCluster: null,
         }),
@@ -847,7 +862,7 @@ export const useEras = create<ErasState>()((set, get) => {
       set(
         withHistory({
           selectedTypologies: [...keys],
-          pathPrefix: [],
+          pathSteps: [],
           selectedClusters: [],
           hoveredCluster: null,
           view: "trajectories",
@@ -872,7 +887,7 @@ export const useEras = create<ErasState>()((set, get) => {
       set(
         withHistory({
           selectedTypologies: [typologyKey],
-          pathPrefix: [],
+          pathSteps: [],
           selectedClusters: [cluster],
           hoveredCluster: null,
           view: "trajectories",
@@ -888,7 +903,7 @@ export const useEras = create<ErasState>()((set, get) => {
       set(
         withHistory({
           selectedTypologies: [],
-          pathPrefix: [],
+          pathSteps: [],
           selectedClusters: [],
           hoveredCluster: null,
         }),
@@ -896,16 +911,16 @@ export const useEras = create<ErasState>()((set, get) => {
       recompute()
     },
 
-    selectPath(prefix) {
+    selectPath(steps) {
       const { typologies } = get()
       set(
         withHistory({
-          pathPrefix: prefix,
+          pathSteps: steps,
           selectedTypologies:
-            prefix.length === 0
+            steps.length === 0
               ? []
               : typologies
-                  .filter((typology) => startsWithPath(typology.states, prefix))
+                  .filter((typology) => matchesSteps(typology.states, steps))
                   .map((typology) => typology.key),
         }),
       )
@@ -971,6 +986,10 @@ export const useEras = create<ErasState>()((set, get) => {
           ? current.filter((p) => p !== patient)
           : [...current, patient],
       })
+    },
+
+    openWorkspace() {
+      if (!get().workspaceOpen) set({ workspaceOpen: true })
     },
 
     setView(view) {

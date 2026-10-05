@@ -8,6 +8,13 @@ interface Props {
   readonly toolbar?: React.ReactNode
   /** Added to `modal`, for a dialog that is not the default wide one. */
   readonly className?: string
+  /**
+   * The close button's label. A dialog that is a step on the way somewhere —
+   * the path explorer opened from the landing — says where closing goes.
+   */
+  readonly closeLabel?: string
+  /** Styles the close button as the dialog's primary action. */
+  readonly closePrimary?: boolean
   readonly children: React.ReactNode
 }
 
@@ -33,6 +40,8 @@ export function Modal({
   onClose,
   toolbar,
   className,
+  closeLabel = "Close",
+  closePrimary = false,
   children,
 }: Props): React.JSX.Element {
   const ref = useRef<HTMLDialogElement>(null)
@@ -59,8 +68,12 @@ export function Modal({
       <div className="modal__head">
         <h2>{title}</h2>
         {toolbar}
-        <button type="button" className="button" onClick={onClose}>
-          Close
+        <button
+          type="button"
+          className={`button ${closePrimary ? "button--primary" : ""}`}
+          onClick={onClose}
+        >
+          {closeLabel}
         </button>
       </div>
       {open && <div className="modal__body">{children}</div>}

@@ -1,3 +1,5 @@
+import type { PathSteps } from "../stats/pathTree.ts"
+
 /**
  * Undo and redo for the typology selection.
  *
@@ -16,7 +18,7 @@
 /** Everything a selection-changing action writes, and so everything undo restores. */
 export interface SelectionSnapshot {
   readonly selectedTypologies: readonly string[]
-  readonly pathPrefix: readonly number[]
+  readonly pathSteps: PathSteps
   readonly selectedClusters: readonly number[]
 }
 
@@ -40,7 +42,7 @@ export const HISTORY_LIMIT = 50
 export function snapshotOf(state: SelectionSnapshot): SelectionSnapshot {
   return {
     selectedTypologies: state.selectedTypologies,
-    pathPrefix: state.pathPrefix,
+    pathSteps: state.pathSteps,
     selectedClusters: state.selectedClusters,
   }
 }
@@ -52,18 +54,19 @@ const sameSet = <T>(a: readonly T[], b: readonly T[]): boolean => {
   return b.every((value) => set.has(value))
 }
 
-const sameSequence = <T>(a: readonly T[], b: readonly T[]): boolean =>
-  a === b || (a.length === b.length && a.every((value, i) => value === b[i]))
+/** Step by step, each step's states as a set: the order they were picked in is invisible. */
+const sameSteps = (a: PathSteps, b: PathSteps): boolean =>
+  a === b || (a.length === b.length && a.every((step, i) => sameSet(step, b[i] as readonly number[])))
 
 /**
  * Whether two snapshots select the same thing. Typologies and clusters compare
- * as sets — the order they were picked in is invisible — and the path prefix as
- * a sequence, because it is one.
+ * as sets — the order they were picked in is invisible — and the path steps as
+ * a sequence of sets: the steps are ordered, the states within one are not.
  */
 export function sameSnapshot(a: SelectionSnapshot, b: SelectionSnapshot): boolean {
   return (
     sameSet(a.selectedTypologies, b.selectedTypologies) &&
-    sameSequence(a.pathPrefix, b.pathPrefix) &&
+    sameSteps(a.pathSteps, b.pathSteps) &&
     sameSet(a.selectedClusters, b.selectedClusters)
   )
 }

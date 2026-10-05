@@ -4,8 +4,8 @@ import type { PathNode, PathTree } from "../core/stats/pathTree.ts"
 
 interface Props {
   readonly tree: PathTree
-  /** Node the explorer is standing on; `0` is the root. */
-  readonly current: number
+  /** Nodes the selection reaches — the last of `walkSteps`; `[0]` is the root. */
+  readonly frontier: readonly number[]
   readonly width: number
   readonly height: number
   /** State id → CSS colour, the chart's own palette. */
@@ -22,7 +22,7 @@ const REACHABLE = 1
 const ON_PATH = 2
 
 /**
- * The whole tree at a glance, in the chart's colours, with the chosen path lit.
+ * The whole tree at a glance, in the chart's colours, with the chosen paths lit.
  *
  * Canvas rather than SVG: a real dataset's tree runs to a few thousand nodes and
  * this is a texture, not a set of controls — nothing in it is clicked or
@@ -40,7 +40,7 @@ const ON_PATH = 2
  * children. That is enough to make the shape of the cohort legible — a wide fan
  * where paths diverge, a long thin spine where everyone does the same thing.
  */
-export function PathMinimap({ tree, current, width, height, palette }: Props): React.JSX.Element {
+export function PathMinimap({ tree, frontier, width, height, palette }: Props): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -67,21 +67,25 @@ export function PathMinimap({ tree, current, width, height, palette }: Props): R
     const px = (depth: number): number => PADDING + (depth / maxDepth) * usableX
     const py = (slot: number): number => PADDING + ((slot + 0.5) / slots) * usableY
 
-    // Rank every node once: the route taken (ancestors of `current`, plus it),
-    // then everything still reachable below it, then the rest.
+    // Rank every node once: the routes taken (ancestors of the frontier, plus
+    // it), then everything still reachable below it, then the rest. A step's
+    // picked state that leads nowhere the next step allows is not on a route.
     const rank = new Uint8Array(nodes.length)
 
-    const stack = [current]
+    const stack = [...frontier]
     while (stack.length > 0) {
       const id = stack.pop() as number
       rank[id] = REACHABLE
       for (const child of (nodes[id] as PathNode).children) stack.push(child)
     }
 
-    let walk = current
-    while (walk >= 0) {
-      rank[walk] = ON_PATH
-      walk = (nodes[walk] as PathNode).parent
+    for (const id of frontier) {
+      let walk = id
+      // Routes share their ancestors; stop at the first one already lit.
+      while (walk >= 0 && rank[walk] !== ON_PATH) {
+        rank[walk] = ON_PATH
+        walk = (nodes[walk] as PathNode).parent
+      }
     }
 
     /*
@@ -144,19 +148,18 @@ export function PathMinimap({ tree, current, width, height, palette }: Props): R
       }
     }
 
-    // Where you are standing: a ring, so it reads as a position rather than as
-    // one more node of the path it ends.
-    const node = nodes[current] as PathNode
-    const x = px(node.depth)
-    const y = py(layout.slot[current] as number)
-
+    // Where you are standing: a ring on each route's end, so they read as
+    // positions rather than as one more node of the paths they end.
     ctx.globalAlpha = 1
-    ctx.beginPath()
-    ctx.arc(x, y, 5.5, 0, Math.PI * 2)
-    ctx.strokeStyle = current === 0 ? ELSEWHERE : palette[node.state] ?? ELSEWHERE
     ctx.lineWidth = 1.5
-    ctx.stroke()
-  }, [tree, current, width, height, palette])
+    for (const id of frontier) {
+      const node = nodes[id] as PathNode
+      ctx.beginPath()
+      ctx.arc(px(node.depth), py(layout.slot[id] as number), 5.5, 0, Math.PI * 2)
+      ctx.strokeStyle = id === 0 ? ELSEWHERE : palette[node.state] ?? ELSEWHERE
+      ctx.stroke()
+    }
+  }, [tree, frontier, width, height, palette])
 
   return (
     <canvas
@@ -164,7 +167,7 @@ export function PathMinimap({ tree, current, width, height, palette }: Props): R
       className="pathmap"
       style={{ width, height }}
       role="img"
-      aria-label="Map of every path, with the chosen one highlighted"
+      aria-label="Map of every path, with the chosen ones highlighted"
     />
   )
 }

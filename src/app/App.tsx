@@ -1,5 +1,6 @@
 import { useEras } from "./store.ts"
 import { FileLoader } from "../ui/FileLoader.tsx"
+import { Landing } from "../ui/Landing.tsx"
 import { SankeyChart } from "../ui/SankeyChart.tsx"
 import { SettingsModal } from "../ui/SettingsModal.tsx"
 import { SideColumn } from "../ui/SideColumn.tsx"
@@ -8,11 +9,14 @@ import { TrajectoriesChart } from "../ui/TrajectoriesChart.tsx"
 export function App(): React.JSX.Element {
   const status = useEras((s) => s.status)
   const hasData = useEras((s) => s.store !== null)
+  const workspaceOpen = useEras((s) => s.workspaceOpen)
   const view = useEras((s) => s.view)
 
   return (
     <div className="app">
-      {hasData ? (
+      {hasData && !workspaceOpen ? (
+        <Landing />
+      ) : hasData ? (
         <main className="app__main">
           <SideColumn />
 

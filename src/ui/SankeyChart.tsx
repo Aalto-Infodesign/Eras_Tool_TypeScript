@@ -1143,7 +1143,7 @@ function SankeyDetail({
   const selectTypologies = useEras((s) => s.selectTypologies)
   const selectPath = useEras((s) => s.selectPath)
   const selectedTypologies = useEras((s) => s.selectedTypologies)
-  const pathPrefix = useEras((s) => s.pathPrefix)
+  const pathSteps = useEras((s) => s.pathSteps)
   const drillDown = useEras((s) => s.drillDown)
   const duration = useEras((s) => s.filters.duration)
   const durationInverted = useEras((s) => s.filters.inverted.duration === true)
@@ -1250,16 +1250,18 @@ function SankeyDetail({
      * typology under the prefix, not just the ones on screen: with a hand-picked
      * selection already narrowing the Sankey, it would bring back typologies the
      * reader had left out, and "show only" would show more. The prefix is safe
-     * from the whole cohort, or from a path it extends.
+     * from the whole cohort, or from a path selection it falls inside.
      */
     if (pin.step === 0 && (pin.kind === "link" || scope === "all")) {
       const path = pin.kind === "link" ? [pin.source, pin.target] : [pin.state]
+      // Inside the current selection when every step it already constrains
+      // allows this path's state there.
       const extendsCurrent =
-        pathPrefix.length > 0 &&
-        pathPrefix.length <= path.length &&
-        pathPrefix.every((state, i) => path[i] === state)
+        pathSteps.length > 0 &&
+        pathSteps.length <= path.length &&
+        pathSteps.every((allowed, i) => allowed.includes(path[i] as number))
       if (selectedTypologies.length === 0 || extendsCurrent) {
-        selectPath(path)
+        selectPath(path.map((state) => [state]))
         return
       }
     }

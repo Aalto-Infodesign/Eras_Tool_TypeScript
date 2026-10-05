@@ -547,8 +547,7 @@ function ChartStats({
   rowStates,
   rowLabels,
   palette,
-  buildMs,
-  frameRef,
+
   indexing,
 }: {
   rowCount: number
@@ -604,12 +603,7 @@ function ChartStats({
           clusters out of date
         </span>
       )}
-      {/* <span>
-        geometry <b>{buildMs.toFixed(1)}ms</b>
-      </span>
-      <span>
-        draw <b>{frameMs.toFixed(2)}ms</b>
-      </span> */}
+
       {/*
        * What the layer was *asked* to draw, beside what it drew. When the two
        * disagree — patients selected but no segments — the fault is between

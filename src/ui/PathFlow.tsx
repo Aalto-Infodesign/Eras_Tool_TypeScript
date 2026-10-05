@@ -1,11 +1,13 @@
-import { findPath, type PathNode, type PathTree } from "../core/stats/pathTree.ts"
+import type { PathNode, PathSteps, PathTree } from "../core/stats/pathTree.ts"
 
 interface Props {
   readonly tree: PathTree
-  readonly pathPrefix: readonly number[]
+  readonly steps: PathSteps
+  /** `walkSteps(tree, steps)` — the nodes each step reaches. */
+  readonly levels: readonly (readonly number[])[]
   readonly palette: readonly string[]
   readonly stateNames: readonly string[]
-  readonly onStep: (prefix: readonly number[]) => void
+  readonly onStep: (steps: PathSteps) => void
   /**
    * Show how many patients survive each step. The board has room for the funnel;
    * the 300px side panel does not, and there the flow is only a "where am I".
@@ -18,16 +20,18 @@ interface Props {
  *
  * The board shows the *decisions* — a column of alternatives per step — which is
  * what you need while choosing and the wrong thing for reading back what you
- * chose: the answer is one item per column, spread across the width, with the
- * rejected options between them. This is the same path in one line, in the
- * chart's own colours, and every step is a click back to that depth.
+ * chose: the answer is a few items per column, spread across the width, with
+ * the rejected options between them. This is the same selection in one line, in
+ * the chart's own colours — a step with several states picked shows them all —
+ * and every step is a click back to that depth.
  *
  * With counts it is also the funnel, which is the number people actually want
  * from this panel: how much of the cohort each successive step costs.
  */
 export function PathFlow({
   tree,
-  pathPrefix,
+  steps,
+  levels,
   palette,
   stateNames,
   onStep,
@@ -41,7 +45,7 @@ export function PathFlow({
         <button
           type="button"
           className="flow__step flow__step--root"
-          data-active={pathPrefix.length === 0}
+          data-active={steps.length === 0}
           title="The whole cohort"
           onClick={() => onStep([])}
         >
@@ -50,12 +54,23 @@ export function PathFlow({
         </button>
       </li>
 
-      {pathPrefix.map((state, depth) => {
-        const node = tree.nodes[findPath(tree, pathPrefix.slice(0, depth + 1))]
-        const isLast = depth === pathPrefix.length - 1
+      {steps.map((states, depth) => {
+        // Patients still in after this step: everyone under the nodes it reached.
+        let size = 0
+        let ends = 0
+        for (const id of levels[depth + 1] ?? []) {
+          const node = tree.nodes[id] as PathNode
+          size += node.size
+          ends += node.ends
+        }
+        const isLast = depth === steps.length - 1
+        const names = states.map((state) => stateNames[state]).join(" or ")
+        // Two names fit the side panel's line; past that the dots carry it.
+        const label =
+          states.length <= 2 ? names : `${stateNames[states[0] as number]} +${states.length - 1}`
 
         return (
-          <li key={`${state}-${depth}`}>
+          <li key={depth}>
             <span className="flow__arrow" aria-hidden="true">
               →
             </span>
@@ -63,20 +78,19 @@ export function PathFlow({
               type="button"
               className="flow__step"
               data-active={isLast}
-              title={
-                node === undefined
-                  ? undefined
-                  : `${node.size.toLocaleString()} reach here, ${node.ends.toLocaleString()} stop here`
-              }
-              onClick={() => onStep(pathPrefix.slice(0, depth + 1))}
+              title={`${names}: ${size.toLocaleString()} reach here, ${ends.toLocaleString()} stop here`}
+              onClick={() => onStep(steps.slice(0, depth + 1))}
             >
-              <span
-                className="flow__dot"
-                style={{ background: palette[state] }}
-                aria-hidden="true"
-              />
-              {stateNames[state]}
-              {showCounts && node !== undefined && <em>{node.size.toLocaleString()}</em>}
+              {states.map((state) => (
+                <span
+                  key={state}
+                  className="flow__dot"
+                  style={{ background: palette[state] }}
+                  aria-hidden="true"
+                />
+              ))}
+              {label}
+              {showCounts && <em>{size.toLocaleString()}</em>}
             </button>
           </li>
         )

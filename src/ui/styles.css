@@ -1267,6 +1267,11 @@ body {
   border-radius: 999px;
   flex: 0 0 auto;
 }
+/* A step with several states picked: the dots overlap into one cluster. */
+.flow__dot + .flow__dot {
+  margin-left: -8px;
+  box-shadow: 0 0 0 1.5px var(--surface-2);
+}
 
 .paths__actions {
   display: flex;
@@ -2650,5 +2655,66 @@ body {
   }
   .viewswitch__swap {
     transition: none;
+  }
+}
+
+/* ---------- landing ---------- */
+
+.landing__file {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.landing__file b {
+  color: var(--text);
+  font-weight: 600;
+}
+.landing__choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 260px));
+  gap: var(--gap);
+}
+.landing__choice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.landing__choice:hover {
+  border-color: var(--accent);
+  background: var(--surface-pinned);
+}
+.landing__choice--primary {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+.landing__choice-title {
+  font-weight: 600;
+}
+.landing__choice--primary .landing__choice-title {
+  color: var(--accent);
+}
+.landing__choice-text {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.landing__back {
+  margin-top: var(--gap-small);
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+@media (max-width: 600px) {
+  .landing__choices {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    padding: 0 16px;
   }
 }

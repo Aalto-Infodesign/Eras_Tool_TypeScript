@@ -67,7 +67,7 @@ describe("the worker boundary", () => {
       population: new Selection(store.patientCount),
       filters: emptyFilters,
       selectedTypologies: [],
-      pathPrefix: [],
+      pathSteps: [],
     })
 
     const target = typologies[0] as (typeof typologies)[number]
@@ -124,7 +124,7 @@ describe("the clustering boundary", () => {
       population: new Selection(store.patientCount),
       filters: emptyFilters,
       selectedTypologies: [],
-      pathPrefix: [],
+      pathSteps: [],
     })
 
     const matrices = buildDurationMatrices(store, typologies)

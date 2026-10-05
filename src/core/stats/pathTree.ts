@@ -177,11 +177,114 @@ export function collectTypologies(tree: PathTree, id: number): string[] {
   return out
 }
 
-/** Does this sequence begin with `path`? The store's side of a path selection. */
-export function startsWithPath(states: Uint16Array, path: readonly number[]): boolean {
-  if (path.length > states.length) return false
-  for (let i = 0; i < path.length; i++) {
-    if (states[i] !== path[i]) return false
+/**
+ * A path selection: for each step from the first, the states allowed there.
+ *
+ * A typology is in when its state at every step is one of that step's — so
+ * `[[a, b], [c]]` is `a → c` and `b → c`. A product rather than a set of
+ * hand-drawn routes, because that is what the explorer's columns are: one row
+ * of alternatives per step, any number of them picked. A step is never empty;
+ * a selection stops at the last step anything was picked in.
+ */
+export type PathSteps = readonly (readonly number[])[]
+
+/** Does this sequence pass through `steps`? The store's side of a path selection. */
+export function matchesSteps(states: Uint16Array, steps: PathSteps): boolean {
+  if (steps.length > states.length) return false
+  for (let i = 0; i < steps.length; i++) {
+    if (!(steps[i] as readonly number[]).includes(states[i] as number)) return false
   }
   return true
 }
+
+/**
+ * The tree nodes the selection reaches, one list per depth: `[0]` is the root
+ * alone, and the last entry is the frontier — the nodes whose subtrees are what
+ * the selection selects.
+ *
+ * A node whose state was picked but that has no child in the next step simply
+ * drops out: `b` can be chosen at step 1 and still contribute nobody to `b → c`.
+ */
+export function walkSteps(tree: PathTree, steps: PathSteps): number[][] {
+  const levels: number[][] = [[0]]
+  for (const allowed of steps) levels.push(nextLevel(tree, levels[levels.length - 1] as number[], allowed))
+  return levels
+}
+
+/** One state offered at a step, summed over every node it follows. */
+export interface PathOption {
+  readonly state: number
+  /** Patients who take this state here, on any of the routes leading to it. */
+  readonly size: number
+  /** Of those, the ones whose trajectory stops on it. */
+  readonly ends: number
+}
+
+/** What can follow `parents`, by state, biggest first — ties on state id, as the tree does. */
+export function optionsAfter(tree: PathTree, parents: readonly number[]): PathOption[] {
+  const byState = new Map<number, { state: number; size: number; ends: number }>()
+
+  for (const id of parents) {
+    for (const child of (tree.nodes[id] as PathNode).children) {
+      const node = tree.nodes[child] as PathNode
+      const option = byState.get(node.state)
+      if (option === undefined) byState.set(node.state, { state: node.state, size: node.size, ends: node.ends })
+      else {
+        option.size += node.size
+        option.ends += node.ends
+      }
+    }
+  }
+
+  return [...byState.values()].sort((a, b) => b.size - a.size || a.state - b.state)
+}
+
+/**
+ * Picks `state` at `depth` if it is not picked there, and drops it if it is.
+ * `depth` may be one past the end, which opens the next step. Dropping a step's
+ * last state ends the selection there.
+ *
+ * Says nothing about whether the result still exists — `normalizeSteps` does.
+ */
+export function toggleStep(steps: PathSteps, depth: number, state: number): PathSteps {
+  const current = steps[depth] ?? []
+  const next = current.includes(state)
+    ? current.filter((s) => s !== state)
+    : [...current, state]
+  return next.length === 0
+    ? steps.slice(0, depth)
+    : [...steps.slice(0, depth), next, ...steps.slice(depth + 1)]
+}
+
+/**
+ * Drops every picked state the tree no longer offers where it was picked, and
+ * cuts the selection at the first step left empty.
+ *
+ * Narrowing an earlier step changes what a later one can offer — unpick `a` and
+ * the `c` that only ever followed `a` has nothing to follow. Returns `steps`
+ * itself when it was already valid, so a caller can compare by reference.
+ */
+export function normalizeSteps(tree: PathTree, steps: PathSteps): PathSteps {
+  const out: number[][] = []
+  let parents: number[] = [0]
+  let changed = false
+
+  for (const allowed of steps) {
+    const offered = new Set(optionsAfter(tree, parents).map((option) => option.state))
+    const kept = allowed.filter((state) => offered.has(state))
+    if (kept.length !== allowed.length) changed = true
+    if (kept.length === 0) break
+    out.push(kept)
+    parents = nextLevel(tree, parents, kept)
+  }
+
+  return changed || out.length !== steps.length ? out : steps
+}
+
+/** The children of `parents` reached by one of `allowed`. */
+const nextLevel = (tree: PathTree, parents: readonly number[], allowed: readonly number[]): number[] =>
+  parents.flatMap((id) =>
+    (tree.nodes[id] as PathNode).children.filter((child) =>
+      allowed.includes((tree.nodes[child] as PathNode).state),
+    ),
+  )
