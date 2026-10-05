@@ -721,7 +721,7 @@ export const useEras = create<ErasState>()((set, get) => {
       selectedClusters: [],
       // The medoid layer has nothing to draw until the new run produces one,
       // and an empty chart reads as a bug rather than as "still working".
-      layers: { ...get().layers, lines: false, medoids: true },
+      layers: { ...get().layers, lines: true, medoids: true },
     })
 
     /*

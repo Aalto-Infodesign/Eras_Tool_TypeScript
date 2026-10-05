@@ -1606,15 +1606,15 @@ body {
   opacity: 0.5;
 }
 .chart__rowlabel {
-  font-size: 10px;
+  font-size: 12px;
   font-family: ui-monospace, monospace;
-  opacity: 0.75;
+  opacity: 1;
   /* Knocked out of the background, because the box plot's whiskers now run the
      full width of the rule this label sits on and would otherwise strike
      through it wherever a cohort reaches back to the left edge. */
   paint-order: stroke fill;
   stroke: var(--bg);
-  stroke-width: 3px;
+  stroke-width: 2px;
   stroke-linejoin: round;
 }
 
@@ -1648,7 +1648,7 @@ body {
   opacity: 0.8;
 }
 .boxplot__label {
-  font-size: 9px;
+  font-size: 10px;
   font-family: ui-monospace, monospace;
   opacity: 0.7;
   dominant-baseline: middle;
@@ -2277,14 +2277,14 @@ body {
 }
 
 .sankey__label {
-  font-size: 10px;
+  font-size: 12px;
   font-family: ui-monospace, monospace;
   dominant-baseline: middle;
-  opacity: 0.9;
+  opacity: 1;
   /* The row labels' knockout: a name crosses the ribbons leaving its node. */
   paint-order: stroke fill;
   stroke: var(--bg);
-  stroke-width: 3px;
+  stroke-width: 2px;
   stroke-linejoin: round;
 }
 .sankey__column {
