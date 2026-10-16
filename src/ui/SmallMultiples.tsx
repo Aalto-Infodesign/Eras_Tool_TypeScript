@@ -121,6 +121,12 @@ const DIM_ELEMENT_OPACITY = 0.26
  */
 const DETAILED_BUDGET = 4000
 const COMPACT_BUDGET = 1200
+/**
+ * How long the pointer rests on a compact card before the grid is labelled
+ * against it. Long enough that sweeping across the grid does not flash labels
+ * on every card it crosses, short enough to read as a response to the hover.
+ */
+const REFERENCE_DELAY_MS = 180
 
 interface Props {
   readonly width: number
@@ -166,6 +172,21 @@ export function SmallMultiples({
    * who it stands for is the question you have to hold still for.
    */
   const [pointedCluster, setPointedCluster] = useState<number | null>(null)
+  /**
+   * The card the compact grid is labelled against: `hovered`, once the pointer
+   * has rested on it — see `ReferenceLabels`. Cleared at once on leaving, so
+   * labels never outlive the hover that asked for them.
+   */
+  const [reference, setReference] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (hovered === null) {
+      setReference(null)
+      return
+    }
+    const timer = window.setTimeout(() => setReference(hovered), REFERENCE_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [hovered])
 
   const palette = useMemo(
     () => buildPalette(store?.stateNames.length ?? 0),
@@ -726,6 +747,8 @@ export function SmallMultiples({
                     labels={panel.labels}
                     repeated={panel.repeated}
                     palette={palette}
+                    // The compact grid names the hovered card's rules beside it.
+                    reveal={isDetailed}
                     hint={
                       onSpine
                         ? "click the spine to isolate that cluster"
@@ -753,6 +776,17 @@ export function SmallMultiples({
             </button>
           )
         })}
+
+        {/* Detailed cards label their own rules in the gutter already. */}
+        {labelWidth === 0 && reference !== null && panels[reference] !== undefined && (
+          <ReferenceLabels
+            panels={panels}
+            reference={reference}
+            rectOf={rectOf}
+            rowPitch={rowPitch}
+            palette={palette.css}
+          />
+        )}
       </div>
 
       {hiddenCount > 0 && (
@@ -761,6 +795,94 @@ export function SmallMultiples({
           than the overlay it replaced.
         </p>
       )}
+    </div>
+  )
+}
+
+/** Where a rule sits in its card, in CSS pixels from the card's top. */
+const ruleY = (row: number, rowPitch: number): number => PANEL_TOP + (row + 0.5) * rowPitch
+
+/**
+ * The compact grid's state names, relative to the card under the pointer.
+ *
+ * A compact card has no room to name its rules, so the colours had to be looked
+ * up — in the States panel, or by resting on the dots. Here the hovered card's
+ * names stand beside it, one on each rule, and every *other* card names only
+ * the rules where it differs from the hovered one, step for step. A rule left
+ * unlabelled is the same state as the hovered card's at that step, so one
+ * legend reads the whole grid, and what is labelled is exactly what changed.
+ *
+ * The legend goes on the card's left, over the neighbour's edge, where the eye
+ * starts reading a rule; a first-column card has no left, so it goes right.
+ * The others' labels keep off the lines: every trajectory descends left to
+ * right, so a top rule's segments sit at its left end and a bottom rule's at its
+ * right — each label takes the far end of its rule. The neighbour the legend
+ * lies over is the exception: its labels take the end the legend leaves clear.
+ */
+function ReferenceLabels({
+  panels,
+  reference,
+  rectOf,
+  rowPitch,
+  palette,
+}: {
+  readonly panels: readonly {
+    readonly typology: Typology
+    readonly steps: readonly number[]
+    readonly labels: readonly string[]
+  }[]
+  readonly reference: number
+  readonly rectOf: (index: number) => { left: number; top: number; width: number }
+  readonly rowPitch: number
+  readonly palette: readonly string[]
+}): React.JSX.Element {
+  const hovered = panels[reference] as (typeof panels)[number]
+  const anchor = rectOf(reference)
+  const onLeft = anchor.left > 0
+  // Same grid row either way: a card with something on its left is not first
+  // in its row, and a first-column card has a neighbour on its right.
+  const covered = onLeft ? reference - 1 : reference + 1
+
+  return (
+    <div className="multiples__labels" aria-hidden="true">
+      {hovered.steps.map((state, row) => (
+        <span
+          key={`reference-${row}`}
+          className="multiples__label multiples__label--reference"
+          style={{
+            top: anchor.top + ruleY(row, rowPitch),
+            left: onLeft ? anchor.left - 6 : anchor.left + anchor.width + 6,
+            transform: onLeft ? "translate(-100%, -50%)" : "translateY(-50%)",
+            color: palette[state],
+          }}
+        >
+          {hovered.labels[row]}
+        </span>
+      ))}
+
+      {panels.map((panel, index) => {
+        if (index === reference) return null
+        const rect = rectOf(index)
+
+        return panel.steps.map((state, row) => {
+          if (hovered.steps[row] === state) return null
+          const atEnd = index === covered ? !onLeft : row < panel.steps.length / 2
+          return (
+            <span
+              key={`${panel.typology.key}-${row}`}
+              className="multiples__label"
+              style={{
+                top: rect.top + ruleY(row, rowPitch),
+                left: atEnd ? rect.left + rect.width - 4 : rect.left + 4,
+                transform: atEnd ? "translate(-100%, -50%)" : "translateY(-50%)",
+                color: palette[state],
+              }}
+            >
+              ≠{panel.labels[row]}
+            </span>
+          )
+        })
+      })}
     </div>
   )
 }

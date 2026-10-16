@@ -5,12 +5,12 @@ import { buildPalette, type Palette } from "../core/render/palette.ts"
 import {
   buildPathTree,
   collectTypologies,
+  effectiveSteps,
   normalizeSteps,
-  optionsAfter,
   toggleStep,
   walkSteps,
+  type Expectation,
   type PathNode,
-  type PathOption,
   type PathSteps,
   type PathTree,
 } from "../core/stats/pathTree.ts"
@@ -36,10 +36,13 @@ const MAP_HEIGHT_EXPANDED = 300
  * Each step shows every state that was actually observed next, with how many
  * people took it. Picking one narrows the chart to exactly those people, which
  * makes the "prediction" question fall out of the same control: if a step is not
- * offered, nobody in the cohort ever did it. A step takes any number of states —
- * click to add one, click again to drop it — so "started with a or b, then c" is
- * one selection rather than two walks. You can stop anywhere — a prefix is a
- * selection in its own right — or walk to the end of a path.
+ * offered, nobody in the cohort ever did it. You can stop anywhere — a prefix is
+ * a selection in its own right — or walk to the end of a path.
+ *
+ * One state per step. A second route is a second walk: save the first as an
+ * *expectation* and start again. Expectations switch on and off, and the ones on
+ * merge with the walk into one selection — so "a then b, or c then d" is two
+ * saved walks rather than a grid of picks whose later steps every branch shares.
  *
  * It lives in a dialog rather than in the side column. A step is a *row* of
  * alternatives and a walk is a sequence of steps, so the thing wants two axes;
@@ -55,6 +58,7 @@ export function PathExplorer(): React.JSX.Element | null {
   if (walk === null) return null
 
   const { tree, levels, frontier, size, scoped, palette, stateNames, steps, selectPath } = walk
+  const hasSelection = steps.length > 0 || walk.expectations.some((row) => row.active)
 
   return (
     <>
@@ -68,20 +72,25 @@ export function PathExplorer(): React.JSX.Element | null {
           </>
         }
       >
-        {steps.length === 0 ? (
+        {steps.length > 0 && (
+          <PathFlow
+            tree={tree}
+            steps={steps}
+            levels={levels}
+            palette={palette.css}
+            stateNames={stateNames}
+            onStep={selectPath}
+          />
+        )}
+        <SaveExpectation walk={walk} />
+        <ExpectationList walk={walk} />
+
+        {!hasSelection ? (
           <p className="paths__hint">
             Step through the cohort one state at a time, narrowing as you go.
           </p>
         ) : (
           <>
-            <PathFlow
-              tree={tree}
-              steps={steps}
-              levels={levels}
-              palette={palette.css}
-              stateNames={stateNames}
-              onStep={selectPath}
-            />
             <p className="paths__hint">
               {size.toLocaleString()} of {tree.total.toLocaleString()} ·{" "}
               {scoped.length.toLocaleString()} typolog{scoped.length === 1 ? "y" : "ies"}
@@ -103,9 +112,9 @@ export function PathExplorer(): React.JSX.Element | null {
           <button
             type="button"
             className="button button--tiny"
-            disabled={steps.length === 0}
-            title="Back to the whole cohort"
-            onClick={() => selectPath([])}
+            disabled={!hasSelection}
+            title="Back to the whole cohort — clears the walk and switches every expectation off"
+            onClick={walk.clear}
           >
             ↺
           </button>
@@ -117,20 +126,37 @@ export function PathExplorer(): React.JSX.Element | null {
   )
 }
 
+/** A saved expectation as the current tree reads it. */
+interface ExpectationRow {
+  readonly expectation: Expectation
+  /** Its steps with removed states cut out — what it selects now. */
+  readonly steps: PathSteps
+  /** The node it ends on, or `null` when the tree no longer has the path. */
+  readonly node: number | null
+  readonly active: boolean
+}
+
 interface PathWalk {
   readonly tree: PathTree
   readonly steps: PathSteps
-  /** `walkSteps(tree, steps)`: the nodes each step reaches, root first. */
-  readonly levels: readonly (readonly number[])[]
-  /** The last of `levels` — the nodes whose subtrees are selected. */
+  /** `walkSteps(tree, steps)`: the node each step reaches, root first. */
+  readonly levels: readonly number[]
+  /**
+   * The nodes whose subtrees are selected: where the walk stands, and where
+   * every expectation switched on ends. Nested ones are dropped, so the
+   * subtrees are disjoint and their sizes add up.
+   */
   readonly frontier: readonly number[]
   /** Patients under the frontier: the selection's size. */
   readonly size: number
-  /** Keys of the typologies under the frontier — what the walk has selected so far. */
+  /** Keys of the typologies under the frontier — what the path selection picks. */
   readonly scoped: readonly string[]
+  readonly expectations: readonly ExpectationRow[]
   readonly palette: Palette
   readonly stateNames: readonly string[]
   readonly selectPath: (steps: PathSteps) => void
+  /** Back to the whole cohort: no walk, nothing switched on. */
+  readonly clear: () => void
 }
 
 /**
@@ -145,6 +171,10 @@ function usePathWalk(): PathWalk | null {
   const selectionVersion = useEras((s) => s.selectionVersion)
   const steps = useEras((s) => s.pathSteps)
   const selectPath = useEras((s) => s.selectPath)
+  const clear = useEras((s) => s.clearTypologies)
+  const expectations = useEras((s) => s.expectations)
+  const activeExpectations = useEras((s) => s.activeExpectations)
+  const removedStates = useEras((s) => s.filters.removedStates)
 
   const palette = useMemo(
     () => buildPalette(store?.stateNames.length ?? 0),
@@ -177,9 +207,30 @@ function usePathWalk(): PathWalk | null {
 
   const levels = useMemo(() => walkSteps(tree, normalized), [tree, normalized])
 
+  const rows = useMemo(() => {
+    const removed = new Set(removedStates)
+    return expectations.map((expectation): ExpectationRow => {
+      const steps = effectiveSteps(expectation.steps, removed)
+      const nodes = walkSteps(tree, steps)
+      return {
+        expectation,
+        steps,
+        node:
+          steps.length > 0 && nodes.length === steps.length + 1 ? (nodes.at(-1) as number) : null,
+        active: activeExpectations.includes(expectation.id),
+      }
+    })
+  }, [tree, expectations, activeExpectations, removedStates])
+
+  const frontier = useMemo(() => {
+    const ends = rows.flatMap((row) => (row.active && row.node !== null ? [row.node] : []))
+    // The walk counts once it has a step, or alone — the root — when nothing else does.
+    if (normalized.length > 0 || ends.length === 0) ends.push(levels.at(-1) as number)
+    return outermost(tree, ends)
+  }, [tree, rows, normalized, levels])
+
   if (store === null || typologies.length === 0) return null
 
-  const frontier = levels[levels.length - 1] as number[]
   let size = 0
   for (const id of frontier) size += (tree.nodes[id] as PathNode).size
 
@@ -189,12 +240,200 @@ function usePathWalk(): PathWalk | null {
     levels,
     frontier,
     size,
-    // Frontier nodes sit at one depth, so their subtrees are disjoint.
     scoped: frontier.flatMap((id) => collectTypologies(tree, id)),
+    expectations: rows,
     palette,
     stateNames: store.stateNames,
     selectPath,
+    clear,
   }
+}
+
+/**
+ * `ids` without duplicates and without any node under another of them — the
+ * nodes whose subtrees, taken together, cover the rest. `a` and `a → b` both
+ * switched on select `a`'s subtree once, not `a → b` twice.
+ */
+function outermost(tree: PathTree, ids: readonly number[]): number[] {
+  const set = new Set(ids)
+  return [...set].filter((id) => {
+    for (
+      let up = (tree.nodes[id] as PathNode).parent;
+      up >= 0;
+      up = (tree.nodes[up] as PathNode).parent
+    ) {
+      if (set.has(up)) return false
+    }
+    return true
+  })
+}
+
+/** Keeps the walk as an expectation — the way to a second route. */
+function SaveExpectation({ walk }: { readonly walk: PathWalk }): React.JSX.Element | null {
+  const save = useEras((s) => s.saveExpectation)
+  if (walk.steps.length === 0) return null
+
+  return (
+    <button
+      type="button"
+      className="button button--tiny paths__save"
+      title="Keep this path, switched on, and start a new walk — expectations switched on merge into one selection"
+      onClick={save}
+    >
+      ＋ Save as expectation
+    </button>
+  )
+}
+
+/**
+ * How much of the cohort the selection covers, as one stacked bar — the
+ * original's selection pie, brought to the path explorer and laid flat so it
+ * costs a line rather than a block.
+ *
+ * One segment per route: the walk in progress and each expectation switched on,
+ * as far as `frontier` keeps them apart (a route inside another is counted in
+ * the outer one). So the bar answers both "how much do my expectations cover"
+ * and "how much of that is each of them", the second on hover.
+ *
+ * The denominator is the tree's: the cohort as the filters leave it, which is
+ * the whole dataset until a filter is set — and the caption says when it is not.
+ */
+function Coverage({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
+  const cohortSize = useEras((s) => s.cohortSize)
+  const { tree, frontier, size, steps, levels, expectations, stateNames } = walk
+  const total = tree.total
+  const share = total === 0 ? 0 : (size / total) * 100
+  const isEverything = frontier.length === 1 && frontier[0] === 0
+
+  const names = new Map<number, string>()
+  if (steps.length > 0) names.set(levels.at(-1) as number, "Current walk")
+  for (const row of expectations) {
+    if (row.active && row.node !== null && !names.has(row.node))
+      names.set(row.node, row.expectation.name)
+  }
+
+  // Biggest first from the left, so the segments read as a sorted breakdown.
+  const segments = frontier
+    .map((id) => {
+      const node = tree.nodes[id] as PathNode
+      return {
+        id,
+        size: node.size,
+        label: names.get(id) ?? stateNames[node.state] ?? "Whole cohort",
+      }
+    })
+    .sort((a, b) => b.size - a.size)
+
+  return (
+    <div className="coverage">
+      <span className="coverage__share">{formatShare(share)}</span>
+      <div
+        className="coverage__bar"
+        role="img"
+        aria-label={`${formatShare(share)} of ${total.toLocaleString()} patients`}
+      >
+        {total > 0 &&
+          segments.map((segment) => (
+            <span
+              key={segment.id}
+              className="coverage__segment"
+              style={{ width: `${(segment.size / total) * 100}%` }}
+              title={`${segment.label} · ${segment.size.toLocaleString()} patients (${formatShare((segment.size / total) * 100)})`}
+            />
+          ))}
+      </div>
+      <span className="coverage__caption">
+        {isEverything ? (
+          "Whole cohort"
+        ) : (
+          <>
+            <b>{size.toLocaleString()}</b> of {total.toLocaleString()} patients
+          </>
+        )}
+        {total < cohortSize && (
+          <span className="coverage__note">
+            {" "}
+            · filters keep {total.toLocaleString()} of {cohortSize.toLocaleString()}
+          </span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+/** A share to one decimal; a sliver keeps enough digits not to read as zero. */
+const formatShare = (percent: number): string =>
+  `${percent.toFixed(percent > 0 && percent < 1 ? 2 : 1)}%`
+
+/**
+ * The saved walks: a switch to merge each into the selection, its path as
+ * dots, a name to edit, how many it picks, and a way to drop it.
+ */
+function ExpectationList({ walk }: { readonly walk: PathWalk }): React.JSX.Element | null {
+  const toggle = useEras((s) => s.toggleExpectation)
+  const rename = useEras((s) => s.renameExpectation)
+  const remove = useEras((s) => s.removeExpectation)
+  const { tree, expectations, palette, stateNames } = walk
+
+  if (expectations.length === 0) return null
+
+  return (
+    <ul className="expectations" aria-label="Expectations">
+      {expectations.map(({ expectation, steps, node, active }) => {
+        const route = steps.map((state) => stateNames[state]).join(" → ")
+        const size = node === null ? 0 : (tree.nodes[node] as PathNode).size
+
+        return (
+          <li key={expectation.id} className="expectation" data-active={active}>
+            <input
+              type="checkbox"
+              className="expectation__toggle"
+              checked={active}
+              aria-label={`Merge ${expectation.name} into the selection`}
+              onChange={() => toggle(expectation.id)}
+            />
+            <span className="expectation__route" title={route}>
+              {steps.map((state, i) => (
+                <span
+                  key={i}
+                  className="flow__dot"
+                  style={{ background: palette.css[state] }}
+                  aria-hidden="true"
+                />
+              ))}
+            </span>
+            <input
+              type="text"
+              className="expectation__name"
+              value={expectation.name}
+              aria-label="Expectation name"
+              title={route}
+              onChange={(event) => rename(expectation.id, event.target.value)}
+            />
+            <span
+              className="expectation__count"
+              title={
+                node === null
+                  ? "Nobody takes this path any more"
+                  : `${size} patients start this way`
+              }
+            >
+              {size.toLocaleString()}
+            </span>
+            <button
+              type="button"
+              className="expectation__remove"
+              aria-label={`Delete ${expectation.name}`}
+              title="Delete this expectation"
+              onClick={() => remove(expectation.id)}
+            >
+              ×
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
 }
 
 interface DialogProps {
@@ -230,7 +469,7 @@ function PathDialog({
       toolbar={
         <span className="modal__note">
           {size.toLocaleString()} of {tree.total.toLocaleString()} patients ·{" "}
-          {scoped.length.toLocaleString()} typologies
+          {scoped.length.toLocaleString()} typolog{scoped.length === 1 ? "y" : "ies"}
         </span>
       }
     >
@@ -245,8 +484,8 @@ function PathDialog({
  *
  * Every level stays on screen, so what you *excluded* by stepping is as visible
  * as what you chose and going back is one click rather than a reset. A column
- * offers whatever follows *any* state picked in the one before it, summed over
- * them — so its counts are the people that column could still keep.
+ * offers whatever follows the state picked in the one before it — so its counts
+ * are the people that column could still keep.
  */
 function PathBoard({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
   const { tree, steps, levels, frontier, palette, stateNames, selectPath } = walk
@@ -265,23 +504,23 @@ function PathBoard({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
   }, [host])
 
   /** One column per step taken, plus the open step at the end. */
-  const columns: { options: PathOption[]; total: number; chosen: readonly number[] }[] = []
+  const columns: { options: PathNode[]; total: number; chosen: number | undefined }[] = []
   for (let depth = 0; depth <= steps.length; depth++) {
-    const parents = levels[depth] as readonly number[]
-    const options = optionsAfter(tree, parents)
-    if (options.length === 0) break
-    let total = 0
-    for (const id of parents) total += (tree.nodes[id] as PathNode).size
-    columns.push({ options, total, chosen: steps[depth] ?? [] })
+    const parent = tree.nodes[levels[depth] ?? -1]
+    if (parent === undefined || parent.children.length === 0) break
+    columns.push({
+      options: parent.children.map((id) => tree.nodes[id] as PathNode),
+      total: parent.size,
+      chosen: steps[depth],
+    })
   }
 
-  // The frontier has nowhere left to go: everyone still selected stops here.
-  const isEnd = columns.length === steps.length
-  let endCount = 0
-  if (isEnd) for (const id of frontier) endCount += (tree.nodes[id] as PathNode).ends
+  // The walk has nowhere left to go: everyone on it stops here.
+  const isEnd = steps.length > 0 && columns.length === steps.length
+  const endCount = isEnd ? (tree.nodes[levels.at(-1) as number] as PathNode).ends : 0
 
-  // Adding or dropping a state can strand a later pick — it only ever followed
-  // what was just dropped — so the result is checked against the tree.
+  // Changing a step can strand a later one — it only ever followed the state
+  // just replaced — so the result is checked against the tree.
   const step = (depth: number, state: number): void =>
     selectPath(normalizeSteps(tree, toggleStep(steps, depth, state)))
 
@@ -294,15 +533,22 @@ function PathBoard({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
        * for "what did I select".
        */}
       <div className="board__flow">
-        <PathFlow
-          tree={tree}
-          steps={steps}
-          levels={levels}
-          palette={palette.css}
-          stateNames={stateNames}
-          onStep={selectPath}
-          showCounts
-        />
+        <div className="board__selection">
+          <div className="board__walk">
+            <PathFlow
+              tree={tree}
+              steps={steps}
+              levels={levels}
+              palette={palette.css}
+              stateNames={stateNames}
+              onStep={selectPath}
+              showCounts
+            />
+            <SaveExpectation walk={walk} />
+          </div>
+          <ExpectationList walk={walk} />
+          <Coverage walk={walk} />
+        </div>
       </div>
 
       <div className="board__columns">
@@ -310,15 +556,12 @@ function PathBoard({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
           <section className="board__column" key={depth}>
             <header className="board__column-head">
               <span>Step {depth + 1}</span>
-              <span className="board__column-count">
-                {chosen.length > 0 && `${chosen.length} of `}
-                {options.length} options
-              </span>
+              <span className="board__column-count">{options.length} options</span>
             </header>
 
             <ul className="board__options">
               {options.map((option) => {
-                const isChosen = chosen.includes(option.state)
+                const isChosen = chosen === option.state
                 const share = total === 0 ? 0 : (option.size / total) * 100
 
                 return (
@@ -327,7 +570,7 @@ function PathBoard({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
                       type="button"
                       className="board__option"
                       data-chosen={isChosen}
-                      data-dimmed={chosen.length > 0 && !isChosen}
+                      data-dimmed={chosen !== undefined && !isChosen}
                       // Zero means the current filters left nobody on this
                       // branch. The step stays visible and clickable — "nobody
                       // here" is an answer, and a silently missing option would
@@ -336,8 +579,8 @@ function PathBoard({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
                       aria-pressed={isChosen}
                       title={
                         isChosen
-                          ? "Drop this state from the step"
-                          : `Add this state · ${option.size} continue this way`
+                          ? "Step back to before this state"
+                          : `Take this step · ${option.size} continue this way`
                       }
                       onClick={() => step(depth, option.state)}
                     >

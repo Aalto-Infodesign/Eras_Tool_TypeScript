@@ -1144,6 +1144,7 @@ function SankeyDetail({
   const selectPath = useEras((s) => s.selectPath)
   const selectedTypologies = useEras((s) => s.selectedTypologies)
   const pathSteps = useEras((s) => s.pathSteps)
+  const activeExpectations = useEras((s) => s.activeExpectations)
   const drillDown = useEras((s) => s.drillDown)
   const duration = useEras((s) => s.filters.duration)
   const durationInverted = useEras((s) => s.filters.inverted.duration === true)
@@ -1254,14 +1255,16 @@ function SankeyDetail({
      */
     if (pin.step === 0 && (pin.kind === "link" || scope === "all")) {
       const path = pin.kind === "link" ? [pin.source, pin.target] : [pin.state]
-      // Inside the current selection when every step it already constrains
-      // allows this path's state there.
+      // Inside the current selection when the walk is a prefix of this path.
+      // Not with expectations switched on: the walk would merge with them, and
+      // "show only" would show them too.
       const extendsCurrent =
+        activeExpectations.length === 0 &&
         pathSteps.length > 0 &&
         pathSteps.length <= path.length &&
-        pathSteps.every((allowed, i) => allowed.includes(path[i] as number))
+        pathSteps.every((state, i) => state === path[i])
       if (selectedTypologies.length === 0 || extendsCurrent) {
-        selectPath(path.map((state) => [state]))
+        selectPath(path)
         return
       }
     }

@@ -33,6 +33,7 @@ export function StateDots({
   palette,
   hint,
   className,
+  reveal = true,
 }: {
   readonly states: readonly number[]
   readonly labels: readonly string[]
@@ -41,6 +42,11 @@ export function StateDots({
   /** A muted last line, for whatever the thing carrying the dots does on click. */
   readonly hint?: string
   readonly className?: string
+  /**
+   * Whether resting on the dots spells them out. Off where something else
+   * already names the steps — the compact grid labels a card's rules on hover.
+   */
+  readonly reveal?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const timer = useRef(0)
@@ -51,6 +57,7 @@ export function StateDots({
     <span
       className={className === undefined ? "dots" : `dots ${className}`}
       onPointerEnter={() => {
+        if (!reveal) return
         window.clearTimeout(timer.current)
         timer.current = window.setTimeout(() => setOpen(true), REVEAL_MS)
       }}

@@ -16,7 +16,8 @@ const snap = (
   selectedTypologies: readonly string[],
   pathSteps: PathSteps = [],
   selectedClusters: readonly number[] = [],
-): SelectionSnapshot => ({ selectedTypologies, pathSteps, selectedClusters })
+  activeExpectations: readonly number[] = [],
+): SelectionSnapshot => ({ selectedTypologies, pathSteps, activeExpectations, selectedClusters })
 
 describe("selection history", () => {
   it("records where the selection came from", () => {
@@ -34,11 +35,12 @@ describe("selection history", () => {
 
   it("treats a different path as a change even over the same typologies", () => {
     // a → b and b → a are different paths through the tree.
-    const history = pushHistory(emptyHistory, snap(["x"], [[0], [1]]), snap(["x"], [[1], [0]]))
+    const history = pushHistory(emptyHistory, snap(["x"], [0, 1]), snap(["x"], [1, 0]))
     expect(history.past).toHaveLength(1)
-    // ...but the states picked within one step are a set.
-    expect(sameSnapshot(snap([], [[0, 1], [2]]), snap([], [[1, 0], [2]]))).toBe(true)
-    expect(sameSnapshot(snap([], [[0, 1]]), snap([], [[0]]))).toBe(false)
+    expect(sameSnapshot(snap([], [0, 1]), snap([], [0]))).toBe(false)
+    // Switched-on expectations are a set.
+    expect(sameSnapshot(snap([], [], [], [1, 2]), snap([], [], [], [2, 1]))).toBe(true)
+    expect(sameSnapshot(snap([], [], [], [1]), snap([], [], [], []))).toBe(false)
     expect(sameSnapshot(snap([], [], [1, 2]), snap([], [], [2, 1]))).toBe(true)
     expect(sameSnapshot(snap([], [], [1]), snap([], [], [1, 2]))).toBe(false)
   })
@@ -87,7 +89,7 @@ describe("selection history", () => {
   })
 
   it("takes only the selection fields from a wider state", () => {
-    const state = { ...snap(["a"], [[1]], [2]), view: "sankey", opacity: 0.5 }
-    expect(snapshotOf(state)).toEqual(snap(["a"], [[1]], [2]))
+    const state = { ...snap(["a"], [1], [2], [3]), view: "sankey", opacity: 0.5 }
+    expect(snapshotOf(state)).toEqual(snap(["a"], [1], [2], [3]))
   })
 })

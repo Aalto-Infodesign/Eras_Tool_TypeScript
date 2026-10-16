@@ -1267,11 +1267,6 @@ body {
   border-radius: 999px;
   flex: 0 0 auto;
 }
-/* A step with several states picked: the dots overlap into one cluster. */
-.flow__dot + .flow__dot {
-  margin-left: -8px;
-  box-shadow: 0 0 0 1.5px var(--surface-2);
-}
 
 .paths__actions {
   display: flex;
@@ -2685,7 +2680,9 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
 }
 .landing__choice:hover {
   border-color: var(--accent);
@@ -2716,5 +2713,215 @@ body {
     grid-template-columns: minmax(0, 1fr);
     width: 100%;
     padding: 0 16px;
+  }
+}
+
+/* ---------- single-typology back button ---------- */
+
+/* Pinned over the chart's top-left corner, above the row labels' rules; a
+   solid surface so the density field under it never makes it hard to read. */
+.chart__back {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+.chart__back:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chart__back:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- path explorer: expectations ---------- */
+
+.paths__save {
+  align-self: flex-start;
+}
+/* The board's walk and its save button share a line. */
+.board__walk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.board__selection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- path explorer: coverage bar ---------- */
+
+/* One line: the share, the stacked bar, and the count it stands for. */
+.coverage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.coverage__share {
+  min-width: 4em;
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+.coverage__bar {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+/* One per route, biggest first; each slides to its new width as the set changes. */
+.coverage__segment {
+  flex: 0 0 auto;
+  background: var(--accent);
+  transition: width 0.25s ease-out;
+}
+.coverage__segment:hover {
+  background: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+.coverage__caption {
+  white-space: nowrap;
+}
+.coverage__caption b {
+  color: var(--text);
+  font-weight: 600;
+}
+.coverage__note {
+  opacity: 0.8;
+}
+
+.expectations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.expectation {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 12px;
+}
+.expectation[data-active="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+}
+.expectation__toggle {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+/* The path in the chart's colours, one dot per step. */
+.expectation__route {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.expectation__route .flow__dot {
+  width: 7px;
+  height: 7px;
+}
+/* Reads as plain text until it is clicked into. */
+.expectation__name {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 3px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-overflow: ellipsis;
+}
+.expectation__name:hover {
+  border-color: var(--line);
+}
+.expectation__name:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.expectation__count {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.expectation__remove {
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.expectation__remove:hover {
+  color: var(--danger);
+}
+
+/* ---------- small multiples: labels against the hovered card ---------- */
+
+/* Offset like the canvases, so a label lands on the rule it names. Above the
+   card buttons, and transparent to the pointer so hovering carries on beneath. */
+.multiples__labels {
+  position: absolute;
+  inset: 0;
+  top: var(--gap-small);
+  pointer-events: none;
+  z-index: 2;
+}
+.multiples__label {
+  position: absolute;
+  max-width: 150px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: multiples-label-in 120ms ease-out;
+}
+/* The hovered card's own legend: the reference the others are read against. */
+.multiples__label--reference {
+  max-width: 180px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 11px;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+@keyframes multiples-label-in {
+  from {
+    opacity: 0;
   }
 }

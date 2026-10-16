@@ -24,7 +24,12 @@ import {
   type SelectionSnapshot,
 } from "../core/query/history.ts"
 import { Selection } from "../core/query/Selection.ts"
-import { matchesSteps, type PathSteps } from "../core/stats/pathTree.ts"
+import {
+  effectiveSteps,
+  matchesSteps,
+  type Expectation,
+  type PathSteps,
+} from "../core/stats/pathTree.ts"
 import { buildDistributions, type FilterDistributions } from "../core/stats/distributions.ts"
 import { samePin, type SankeyMetric, type SankeyPin } from "../core/stats/sankey.ts"
 import { summariseStates } from "../core/stats/states.ts"
@@ -119,6 +124,59 @@ export function focusedTypologyOf(selected: readonly string[]): string | null {
   return selected.length === 1 ? (selected[0] as string) : null
 }
 
+/**
+ * Where the single-typology chart's back button leads: the view and the
+ * selection on screen just before the chart opened — the Sankey it was drilled
+ * into from, or the small multiples it was picked out of, with whatever they
+ * were showing.
+ */
+export interface FocusReturn {
+  readonly view: MainView
+  readonly snapshot: SelectionSnapshot
+}
+
+/**
+ * The back target after a selection change: recorded on the way *into* the
+ * single chart, kept while it stays on screen — picking a cluster inside it is
+ * not a new place to come back from — and dropped once the chart is left.
+ */
+function nextFocusReturn(
+  state: SelectionSnapshot & { view: MainView; focusReturn: FocusReturn | null },
+  nextSelected: readonly string[],
+  nextView: MainView,
+): FocusReturn | null {
+  if (nextView !== "trajectories" || focusedTypologyOf(nextSelected) === null) return null
+  const onSingleChart = state.view === "trajectories" && focusedTypologyOf(state.selectedTypologies) !== null
+  return onSingleChart ? state.focusReturn : { view: state.view, snapshot: snapshotOf(state) }
+}
+
+/**
+ * The typologies a path selection picks: every one that starts with the walk
+ * in progress or with any expectation switched on — the union, so saved routes
+ * merge. `[]`, the whole cohort, when there is neither.
+ *
+ * Saved paths are read through the removed states (see `effectiveSteps`); one
+ * that a removal empties picks nobody rather than everybody.
+ */
+function pathSelection(
+  typologies: readonly Typology[],
+  steps: PathSteps,
+  expectations: readonly Expectation[],
+  active: readonly number[],
+  removed: readonly number[],
+): string[] {
+  const removedSet = new Set(removed)
+  const paths = expectations
+    .filter((expectation) => active.includes(expectation.id))
+    .map((expectation) => effectiveSteps(expectation.steps, removedSet))
+    .filter((path) => path.length > 0)
+  if (steps.length > 0) paths.push(steps)
+  if (paths.length === 0) return []
+  return typologies
+    .filter((typology) => paths.some((path) => matchesSteps(typology.states, path)))
+    .map((typology) => typology.key)
+}
+
 /** Set equality over state ids, which arrive in click order, not sorted. */
 function sameStates(a: readonly number[] | null, b: readonly number[]): boolean {
   const left = a ?? []
@@ -205,16 +263,26 @@ interface ErasState {
   distributions: FilterDistributions | null
   selectedTypologies: readonly string[]
   /**
-   * The path explorer's position: for each step from the first, the states
-   * picked there — see `PathSteps`.
+   * The path explorer's walk in progress: the state picked at each step from
+   * the first — see `PathSteps`.
    *
-   * `selectedTypologies` is derived from it whenever it is non-empty — every
-   * typology whose sequence passes through it — so the path is a *way of choosing*
-   * typologies rather than a second kind of selection the chart would have to
-   * know about. Kept here rather than in the panel because the panel folds away
-   * and the selection it made does not.
+   * `selectedTypologies` is derived from it, and from the expectations switched
+   * on, whenever either is non-empty — see `pathSelection` — so a path is a *way
+   * of choosing* typologies rather than a second kind of selection the chart
+   * would have to know about. Kept here rather than in the panel because the
+   * panel folds away and the selection it made does not.
    */
   pathSteps: PathSteps
+  /**
+   * Walks saved from the path explorer, oldest first — see `Expectation`.
+   *
+   * Not part of the selection history: saving or renaming one selects nothing.
+   * Kept across reshapes, since state ids never move; dropped on a new file,
+   * where they would name other states.
+   */
+  expectations: readonly Expectation[]
+  /** Ids of the expectations merged into the selection. */
+  activeExpectations: readonly number[]
   /**
    * Undo and redo over `selectedTypologies`, `pathSteps` and
    * `selectedClusters` — see `core/query/history.ts`.
@@ -226,6 +294,12 @@ interface ErasState {
    * it holds stop naming anything.
    */
   selectionHistory: SelectionHistory
+  /**
+   * Where the single-typology chart's back button returns to — see
+   * `FocusReturn`. `null` outside that chart, and inside it when it was reached
+   * some way that left nothing to return to, where back means the grid.
+   */
+  focusReturn: FocusReturn | null
 
   /**
    * Whether the user is past the landing that follows the first load.
@@ -360,8 +434,22 @@ interface ErasState {
    * Sankey's "Open in Trajectories".
    */
   drillDown(keys: readonly string[]): void
-  /** Walks the path explorer to `steps`; `[]` steps back to the whole cohort. */
+  /**
+   * The single-typology chart's back button: puts back the view and selection
+   * it was opened from (see `focusReturn`), or the grid when there is none.
+   */
+  leaveFocus(): void
+  /** Walks the path explorer to `steps`; `[]` steps back to the start of the walk. */
   selectPath(steps: PathSteps): void
+  /**
+   * Saves the walk as an expectation, switched on, and starts a fresh walk.
+   * The selection is unchanged: what the walk picked, the expectation now does.
+   */
+  saveExpectation(): void
+  /** Merges a saved expectation into the selection, or takes it back out. */
+  toggleExpectation(id: number): void
+  renameExpectation(id: number, name: string): void
+  removeExpectation(id: number): void
   /** Puts back the selection the last selection-changing action replaced. */
   undoSelection(): void
   /** Re-applies the selection the last `undoSelection` took back. */
@@ -446,7 +534,10 @@ const initial = {
   distributions: null,
   selectedTypologies: [],
   pathSteps: [],
+  expectations: [] as readonly Expectation[],
+  activeExpectations: [] as readonly number[],
   selectionHistory: emptyHistory,
+  focusReturn: null,
   workspaceOpen: false,
   view: "trajectories" as MainView,
   sankeyOrder: "state" as SankeyOrder,
@@ -528,14 +619,21 @@ export const useEras = create<ErasState>()((set, get) => {
     return {
       ...next,
       selectionHistory: pushHistory(state.selectionHistory, previous, { ...previous, ...next }),
+      focusReturn: nextFocusReturn(
+        state,
+        next.selectedTypologies ?? state.selectedTypologies,
+        next.view ?? state.view,
+      ),
     }
   }
 
   /** Puts a snapshot from the history back, as one write, and re-derives the masks. */
   const restore = (snapshot: SelectionSnapshot, selectionHistory: SelectionHistory): void => {
+    const state = get()
     set({
       ...snapshotOf(snapshot),
       selectionHistory,
+      focusReturn: nextFocusReturn(state, snapshot.selectedTypologies, state.view),
       // As every other selection change: a hovered cluster belongs to the
       // typology that was drawn, which may no longer be.
       hoveredCluster: null,
@@ -637,8 +735,14 @@ export const useEras = create<ErasState>()((set, get) => {
       typologies,
       distributions,
       // A splice merges typologies, so a selected key can simply cease to exist.
-      selectedTypologies: reshaped ? [] : selectedTypologies.filter((key) => keys.has(key)),
+      // Expectations switched on are the exception: a saved path reads through
+      // the removal, so they pick again from the new typologies.
+      selectedTypologies: reshaped
+        ? pathSelection(typologies, [], get().expectations, get().activeExpectations, removedStates)
+        : selectedTypologies.filter((key) => keys.has(key)),
       pathSteps: reshaped ? [] : get().pathSteps,
+      // Holds typology keys, as the history does.
+      focusReturn: reshaped ? null : get().focusReturn,
       // Both index a run that no longer describes anything on screen: a global
       // cluster index means nothing once the typologies behind it have merged.
       selectedClusters: reshaped ? [] : get().selectedClusters,
@@ -717,12 +821,15 @@ export const useEras = create<ErasState>()((set, get) => {
       filters: emptyFilters,
       selectedTypologies: [],
       pathSteps: [],
+      expectations: [],
+      activeExpectations: [],
       selectedPatients: [],
       hoveredPatient: null,
       xDomainOverride: null,
       // Undoing into another file's typology keys would select nothing. `view`
       // is deliberately not here: it is how the user looks, not what the file is.
       selectionHistory: emptyHistory,
+      focusReturn: null,
       sankeyPin: null,
       sankeyCompare: null,
       hoveredTypology: null,
@@ -830,6 +937,7 @@ export const useEras = create<ErasState>()((set, get) => {
           // describes, and a breadcrumb that no longer matches the selection is
           // worse than no breadcrumb.
           pathSteps: [],
+          activeExpectations: [],
           // A cluster belongs to one typology's ladder; changing which typology
           // is drawn abandons it rather than plotting it against another.
           selectedClusters: [],
@@ -845,6 +953,7 @@ export const useEras = create<ErasState>()((set, get) => {
         withHistory({
           selectedTypologies: [...keys],
           pathSteps: [],
+          activeExpectations: [],
           selectedClusters: [],
           hoveredCluster: null,
         }),
@@ -863,6 +972,7 @@ export const useEras = create<ErasState>()((set, get) => {
         withHistory({
           selectedTypologies: [...keys],
           pathSteps: [],
+          activeExpectations: [],
           selectedClusters: [],
           hoveredCluster: null,
           view: "trajectories",
@@ -888,11 +998,32 @@ export const useEras = create<ErasState>()((set, get) => {
         withHistory({
           selectedTypologies: [typologyKey],
           pathSteps: [],
+          activeExpectations: [],
           selectedClusters: [cluster],
           hoveredCluster: null,
           view: "trajectories",
         }),
       )
+      recompute()
+    },
+
+    leaveFocus() {
+      const { focusReturn } = get()
+      if (focusReturn === null) {
+        get().clearTypologies()
+        return
+      }
+      set({
+        ...withHistory({
+          ...snapshotOf(focusReturn.snapshot),
+          view: focusReturn.view,
+          hoveredPatient: null,
+          hoveredCluster: null,
+        }),
+        // Spent. A Sankey returned to with one typology still selected would
+        // otherwise record *this* chart as the way back from itself.
+        focusReturn: null,
+      })
       recompute()
     },
 
@@ -904,6 +1035,7 @@ export const useEras = create<ErasState>()((set, get) => {
         withHistory({
           selectedTypologies: [],
           pathSteps: [],
+          activeExpectations: [],
           selectedClusters: [],
           hoveredCluster: null,
         }),
@@ -912,19 +1044,71 @@ export const useEras = create<ErasState>()((set, get) => {
     },
 
     selectPath(steps) {
-      const { typologies } = get()
+      const { typologies, expectations, activeExpectations, filters } = get()
       set(
         withHistory({
           pathSteps: steps,
-          selectedTypologies:
-            steps.length === 0
-              ? []
-              : typologies
-                  .filter((typology) => matchesSteps(typology.states, steps))
-                  .map((typology) => typology.key),
+          selectedTypologies: pathSelection(
+            typologies,
+            steps,
+            expectations,
+            activeExpectations,
+            filters.removedStates,
+          ),
         }),
       )
       recompute()
+    },
+
+    saveExpectation() {
+      const { pathSteps, expectations, activeExpectations } = get()
+      if (pathSteps.length === 0) return
+      const id = expectations.reduce((max, expectation) => Math.max(max, expectation.id), 0) + 1
+      // Through `withHistory` for the walk and the switch, which do change; the
+      // list is not history, so undoing this switches it off and keeps it.
+      set({
+        ...withHistory({ pathSteps: [], activeExpectations: [...activeExpectations, id] }),
+        expectations: [...expectations, { id, name: `Expectation ${id}`, steps: pathSteps }],
+      })
+    },
+
+    toggleExpectation(id) {
+      const { typologies, pathSteps, expectations, activeExpectations, filters } = get()
+      const active = activeExpectations.includes(id)
+        ? activeExpectations.filter((other) => other !== id)
+        : [...activeExpectations, id]
+      set(
+        withHistory({
+          activeExpectations: active,
+          selectedTypologies: pathSelection(
+            typologies,
+            pathSteps,
+            expectations,
+            active,
+            filters.removedStates,
+          ),
+          // As any other selection change: a cluster belongs to a typology
+          // that may no longer be drawn.
+          selectedClusters: [],
+          hoveredCluster: null,
+        }),
+      )
+      recompute()
+    },
+
+    renameExpectation(id, name) {
+      set({
+        expectations: get().expectations.map((expectation) =>
+          expectation.id === id ? { ...expectation, name } : expectation,
+        ),
+      })
+    },
+
+    removeExpectation(id) {
+      const { expectations, activeExpectations } = get()
+      // Switched off first, so the selection drops it the same way a toggle does.
+      if (activeExpectations.includes(id)) get().toggleExpectation(id)
+      set({ expectations: expectations.filter((expectation) => expectation.id !== id) })
     },
 
     undoSelection() {

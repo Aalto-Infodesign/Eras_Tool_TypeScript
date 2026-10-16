@@ -4,10 +4,10 @@ import { buildStore } from "../model/build.ts"
 import {
   buildPathTree,
   collectTypologies,
+  effectiveSteps,
   findPath,
   matchesSteps,
   normalizeSteps,
-  optionsAfter,
   pathOf,
   toggleStep,
   walkSteps,
@@ -116,63 +116,55 @@ describe("path tree", () => {
     expect(tree.total).toBe(6)
   })
 
-  it("matches sequences step by step, any picked state per step", () => {
-    expect(matchesSteps(Uint16Array.of(1, 2, 3), [[1], [2]])).toBe(true)
-    expect(matchesSteps(Uint16Array.of(1, 2, 3), [[1], [2], [3]])).toBe(true)
-    expect(matchesSteps(Uint16Array.of(1, 2), [[1], [2], [3]])).toBe(false)
-    expect(matchesSteps(Uint16Array.of(1, 2, 3), [[2]])).toBe(false)
+  it("matches sequences by prefix", () => {
+    expect(matchesSteps(Uint16Array.of(1, 2, 3), [1, 2])).toBe(true)
+    expect(matchesSteps(Uint16Array.of(1, 2, 3), [1, 2, 3])).toBe(true)
+    expect(matchesSteps(Uint16Array.of(1, 2), [1, 2, 3])).toBe(false)
+    expect(matchesSteps(Uint16Array.of(1, 2, 3), [2])).toBe(false)
     expect(matchesSteps(Uint16Array.of(1, 2, 3), [])).toBe(true)
-    expect(matchesSteps(Uint16Array.of(1, 2, 3), [[0, 1], [5, 2]])).toBe(true)
-    expect(matchesSteps(Uint16Array.of(1, 2, 3), [[0, 1], [5]])).toBe(false)
   })
 })
 
-describe("multi-state steps", () => {
-  it("offers what follows any picked state, summed across them", () => {
+describe("walking a path", () => {
+  it("reaches one node per step, root first", () => {
     const { tree, id } = build()
-    // Step 1 picks both a and f; only a goes on.
-    const levels = walkSteps(tree, [[id("a"), id("f")]])
-    expect(levels).toHaveLength(2)
-    expect(levels[1]).toHaveLength(2)
-
-    const options = optionsAfter(tree, levels[1]!)
-    expect(options.map((o) => o.state)).toEqual([id("b"), id("e")])
-    expect(options.map((o) => o.size)).toEqual([5, 4])
-    expect(options[1]!.ends).toBe(4)
+    const nodes = walkSteps(tree, [id("a"), id("b")])
+    expect(nodes).toHaveLength(3)
+    expect(nodes[0]).toBe(0)
+    expect(nodes.at(-1)).toBe(findPath(tree, [id("a"), id("b")]))
+    expect(collectTypologies(tree, nodes.at(-1)!).sort()).toEqual(["a-b-c", "a-b-d"])
   })
 
-  it("selects the product of the steps, through the frontier", () => {
+  it("stops short at a step the tree does not have", () => {
     const { tree, id } = build()
-    const levels = walkSteps(tree, [[id("a")], [id("b"), id("e")]])
-    const frontier = levels.at(-1)!
-    expect(frontier.reduce((sum, n) => sum + tree.nodes[n]!.size, 0)).toBe(9)
-    expect(frontier.flatMap((n) => collectTypologies(tree, n)).sort()).toEqual([
-      "a-b-c",
-      "a-b-d",
-      "a-e",
-    ])
+    expect(walkSteps(tree, [id("f"), id("e")])).toEqual([0, findPath(tree, [id("f")])])
   })
 
-  it("adds a state on the first click and drops it on the second", () => {
-    const added = toggleStep([[1]], 0, 2)
-    expect(added).toEqual([[1, 2]])
-    expect(toggleStep(added, 0, 2)).toEqual([[1]])
-    // One past the end opens the next step.
-    expect(toggleStep([[1]], 1, 3)).toEqual([[1], [3]])
+  it("takes a step, and steps back when the pick is clicked again", () => {
+    expect(toggleStep([1], 1, 3)).toEqual([1, 3])
+    expect(toggleStep([1, 3], 1, 3)).toEqual([1])
+    // Dropping an earlier pick drops everything after it.
+    expect(toggleStep([1, 2, 3], 0, 1)).toEqual([])
   })
 
-  it("ends the selection at a step whose last state is dropped", () => {
-    expect(toggleStep([[1], [2], [3]], 1, 2)).toEqual([[1]])
+  it("swaps an earlier step and keeps the later ones", () => {
+    expect(toggleStep([1, 2, 3], 1, 5)).toEqual([1, 5, 3])
   })
 
-  it("drops later picks that only followed an unpicked state", () => {
+  it("cuts the walk where a swapped step strands what followed", () => {
     const { tree, id } = build()
-    // e only ever follows a; f leads nowhere, so with a gone step 2 is stranded.
-    const steps = [[id("f")], [id("e")]]
-    expect(normalizeSteps(tree, steps)).toEqual([[id("f")]])
+    // e only ever follows a; f leads nowhere, so after f the walk ends.
+    expect(normalizeSteps(tree, [id("f"), id("e")])).toEqual([id("f")])
 
     // Already valid: handed back as-is, so callers can compare by reference.
-    const valid = [[id("a"), id("f")], [id("e")]]
+    const valid = [id("a"), id("e")]
     expect(normalizeSteps(tree, valid)).toBe(valid)
+  })
+
+  it("reads a saved path through the removed states", () => {
+    const steps = [1, 2, 3]
+    expect(effectiveSteps(steps, new Set([2]))).toEqual([1, 3])
+    // Untouched by the removal: the same array back.
+    expect(effectiveSteps(steps, new Set([7]))).toBe(steps)
   })
 })

@@ -464,6 +464,8 @@ export function TrajectoriesChart(): React.JSX.Element {
       >
         <canvas ref={setCanvas} className="chart__canvas" />
 
+        <BackButton />
+
         <ChartGrid
           width={size.width}
           height={size.height}
@@ -534,6 +536,31 @@ export function TrajectoriesChart(): React.JSX.Element {
         indexing={needsCpuIndex && index === null}
       />
     </div>
+  )
+}
+
+/**
+ * The single chart's way out, in its top-left corner: back to whatever it was
+ * opened from — the Sankey, or the small multiples with their selection — and
+ * named for it, so the click says where it lands.
+ */
+function BackButton(): React.JSX.Element {
+  const leaveFocus = useEras((s) => s.leaveFocus)
+  const target = useEras((s) => s.focusReturn?.view ?? "trajectories")
+  const label = target === "sankey" ? "Sankey" : "Typologies"
+
+  return (
+    <button
+      type="button"
+      className="chart__back"
+      title={`Back to the ${target === "sankey" ? "Sankey" : "typology grid"}`}
+      // The surface under it picks on pointerdown; this press is not a pick.
+      onPointerDown={(event) => event.stopPropagation()}
+      onPointerMove={(event) => event.stopPropagation()}
+      onClick={leaveFocus}
+    >
+      <span aria-hidden="true">←</span> {label}
+    </button>
   )
 }
 

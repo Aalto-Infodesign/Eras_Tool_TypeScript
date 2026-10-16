@@ -19,6 +19,8 @@ import type { PathSteps } from "../stats/pathTree.ts"
 export interface SelectionSnapshot {
   readonly selectedTypologies: readonly string[]
   readonly pathSteps: PathSteps
+  /** Ids of the saved expectations switched on — the list itself is not a selection. */
+  readonly activeExpectations: readonly number[]
   readonly selectedClusters: readonly number[]
 }
 
@@ -38,11 +40,12 @@ export const emptyHistory: SelectionHistory = { past: [], future: [] }
  */
 export const HISTORY_LIMIT = 50
 
-/** Just the three fields — pass the store's state straight in. */
+/** Just the selection fields — pass the store's state straight in. */
 export function snapshotOf(state: SelectionSnapshot): SelectionSnapshot {
   return {
     selectedTypologies: state.selectedTypologies,
     pathSteps: state.pathSteps,
+    activeExpectations: state.activeExpectations,
     selectedClusters: state.selectedClusters,
   }
 }
@@ -54,19 +57,20 @@ const sameSet = <T>(a: readonly T[], b: readonly T[]): boolean => {
   return b.every((value) => set.has(value))
 }
 
-/** Step by step, each step's states as a set: the order they were picked in is invisible. */
+/** Step by step: a path is ordered. */
 const sameSteps = (a: PathSteps, b: PathSteps): boolean =>
-  a === b || (a.length === b.length && a.every((step, i) => sameSet(step, b[i] as readonly number[])))
+  a === b || (a.length === b.length && a.every((state, i) => state === b[i]))
 
 /**
- * Whether two snapshots select the same thing. Typologies and clusters compare
- * as sets — the order they were picked in is invisible — and the path steps as
- * a sequence of sets: the steps are ordered, the states within one are not.
+ * Whether two snapshots select the same thing. Typologies, expectations and
+ * clusters compare as sets — the order they were picked in is invisible — and
+ * the path steps as a sequence.
  */
 export function sameSnapshot(a: SelectionSnapshot, b: SelectionSnapshot): boolean {
   return (
     sameSet(a.selectedTypologies, b.selectedTypologies) &&
     sameSteps(a.pathSteps, b.pathSteps) &&
+    sameSet(a.activeExpectations, b.activeExpectations) &&
     sameSet(a.selectedClusters, b.selectedClusters)
   )
 }
