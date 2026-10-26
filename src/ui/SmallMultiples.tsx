@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useEras } from "../app/store.ts"
 import { clusterMembers, medoidPatients } from "../core/cluster/medoids.ts"
-import { TOP_CLUSTER_LIMIT } from "../core/cluster/types.ts"
+import { TOP_CLUSTER_LIMIT, type TypologyClusters } from "../core/cluster/types.ts"
 import { buildGeometry, type Geometry, type GeometryOptions } from "../core/render/geometry.ts"
 import { mixToward, paintGeometry } from "../core/render/paint2d.ts"
 import { buildPalette, packedRgb } from "../core/render/palette.ts"
 import { SegmentIndex } from "../core/render/picking.ts"
 import { panelTypologies, repeatedSteps, sequenceLabels } from "../core/stats/silhouettes.ts"
-import type { Typology } from "../core/types.ts"
+import type { TrajectoryStore, Typology } from "../core/types.ts"
 import { StateDots } from "./StateDots.tsx"
 import { createHoverSettler, HIGHLIGHT_OPACITY } from "./hover.ts"
 import { useAnimatedScalar } from "./useAnimatedView.ts"
@@ -102,6 +102,14 @@ const SPINE_WIDTH = 1.4
 const SPINE_FOCUS_WIDTH = 2.6
 const SPINE_DIMMED_OPACITY = 0.22
 /**
+ * A typology's spines are drawn in one after another when its result lands
+ * during a run, biggest cluster first: this far apart, each fading in over
+ * `SPINE_DRAW_IN_MS`. Only final medoids are ever drawn — the stagger is in the
+ * showing, not in the clustering, which hands over a typology's medoids together.
+ */
+const SPINE_STAGGER_MS = 120
+const SPINE_DRAW_IN_MS = 280
+/**
  * How far the hairline layer recedes while a cluster is highlighted.
  *
  * A CSS opacity on the canvas element, not a repaint: the compositor already
@@ -153,6 +161,7 @@ export function SmallMultiples({
   const showSpines = useEras((s) => s.layers.medoids)
   const clusterRun = useClusterRun()
   const clusterVersion = useEras((s) => s.clusterVersion)
+  const clusterStatus = useEras((s) => s.clusterStatus)
   const hoveredCluster = useEras((s) => s.hoveredCluster)
   const setHoveredCluster = useEras((s) => s.setHoveredCluster)
 
@@ -309,6 +318,78 @@ export function SmallMultiples({
    * Only the spines are hit-tested — picking one hairline out of a crowd names
    * a person nobody was aiming at, where picking a spine names a group.
    */
+  /**
+   * When each typology's spines started drawing in, in frame time.
+   *
+   * Read off the run's results map at every flush, so a key that is new since
+   * the last one has just landed. It is stamped `NaN` — waiting — and the first
+   * frame painted after that starts its draw-in: landing a result can cost a
+   * frame or two, and timed from the landing the reveal could be over before
+   * anything was painted. Results already there when the map is first seen —
+   * opening this view mid-run or after it — are stamped `-Infinity` and simply
+   * drawn; only what lands while the grid watches is drawn in. A new run is a
+   * new map, and starts empty.
+   *
+   * A ref: the paint reads it. Drawing in is a canvas repaint per frame, never
+   * a React render — re-rendering the grid every frame cost more than the
+   * drawing did.
+   */
+  const arrivals = useRef<{
+    results: ReadonlyMap<string, TypologyClusters> | null
+    at: Map<string, number>
+    /** Landed and shown, not yet painted: key → medoid count. */
+    pending: Map<string, number>
+    /** When the last draw-in under way finishes. */
+    end: number
+  }>({
+    results: null,
+    at: new Map(),
+    pending: new Map(),
+    end: 0,
+  })
+  /** Bumped when something new is waiting to draw in, to start the frame loop. */
+  const [revealRequest, setRevealRequest] = useState(0)
+
+  useEffect(() => {
+    const results = clusterRun?.byTypology ?? null
+    const book = arrivals.current
+    if (results === null) return
+
+    const isFresh = book.results !== results
+    if (isFresh) {
+      book.results = results
+      book.at = new Map()
+      book.pending = new Map()
+    }
+    // Seen for the first time with results already in: those are history.
+    const live = clusterStatus === "running" && !(isFresh && results.size > 0)
+
+    const shown = new Set(panels.map((panel) => panel.typology.key))
+    let waiting = false
+    for (const [key, result] of results) {
+      if (book.at.has(key)) continue
+      // Off screen it has nothing to draw in, so it counts as already drawn.
+      const drawsIn = live && shown.has(key)
+      book.at.set(key, drawsIn ? Number.NaN : -Infinity)
+      if (drawsIn) {
+        book.pending.set(key, result.k)
+        waiting = true
+      }
+    }
+    if (waiting) setRevealRequest((count) => count + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clusterRun, clusterVersion, clusterStatus, panels])
+
+  /**
+   * A drawing-in panel's spines one by one, biggest cluster first — built on
+   * first need and kept until `spines` is rebuilt, which is exactly when the
+   * medoids, the mask or the geometry options change underneath them.
+   */
+  const spineParts = useRef<{ spines: unknown; byKey: Map<string, Geometry[]> }>({
+    spines: null,
+    byKey: new Map(),
+  })
+
   const spineIndex = useMemo<readonly (SegmentIndex | null)[]>(
     () =>
       spines.map((geometry, i) => {
@@ -561,10 +642,35 @@ export function SmallMultiples({
 
   // Layer 3 — the summaries, and whatever is being pointed at. Cheap by
   // construction: a handful of spines per panel, and one cluster's members.
-  useEffect(() => {
+  // `clock` places the spines still drawing in; see `arrivals`.
+  const paintSpines = useCallback((clock: number) => {
     const dpr = window.devicePixelRatio || 1
     const ctx = prepare(spinesRef.current, dpr)
     if (ctx === null) return
+
+    const parts = spineParts.current
+    if (parts.spines !== spines) {
+      parts.spines = spines
+      parts.byKey = new Map()
+    }
+    const mask = selection?.mask ?? null
+    const drawingIn = (key: string, result: TypologyClusters): Geometry[] => {
+      let geometries = parts.byKey.get(key)
+      if (geometries === undefined) {
+        const order = Array.from({ length: result.k }, (_, cluster) => cluster)
+          .filter((cluster) => mask === null || mask[result.medoidPatient[cluster] as number] === 1)
+          .sort((a, b) => (result.sizes[b] as number) - (result.sizes[a] as number))
+        geometries = order.map((cluster) =>
+          buildGeometry(
+            store as TrajectoryStore,
+            Uint32Array.of(result.medoidPatient[cluster] as number),
+            panelOptions,
+          ),
+        )
+        parts.byKey.set(key, geometries)
+      }
+      return geometries
+    }
 
     panels.forEach((panel, index) => {
       const band = bandOf(index, panel, dpr)
@@ -590,12 +696,36 @@ export function SmallMultiples({
        * is what makes aiming at a spine feel direct while the field below it
        * still waits for the pointer to stop.
        */
-      paintGeometry(ctx, spines[index] ?? null, {
-        ...band,
-        opacity: focusSpine === null ? SPINE_OPACITY : SPINE_DIMMED_OPACITY,
-        lineWidth: SPINE_WIDTH * dpr,
-        rowColors: colors,
-      })
+      const spineOpacity = focusSpine === null ? SPINE_OPACITY : SPINE_DIMMED_OPACITY
+      const result = clusterRun?.byTypology.get(panel.typology.key)
+      const arrived = arrivals.current.at.get(panel.typology.key) ?? -Infinity
+
+      if (Number.isNaN(arrived)) {
+        // Landed, waiting for the frame that starts its draw-in.
+      } else if (
+        store !== null &&
+        result !== undefined &&
+        clock < arrived + result.k * SPINE_STAGGER_MS + SPINE_DRAW_IN_MS
+      ) {
+        // Just landed: each medoid in its turn, fading up to full strength.
+        drawingIn(panel.typology.key, result).forEach((geometry, i) => {
+          const progress = (clock - arrived - i * SPINE_STAGGER_MS) / SPINE_DRAW_IN_MS
+          if (progress <= 0) return
+          paintGeometry(ctx, geometry, {
+            ...band,
+            opacity: spineOpacity * Math.min(1, progress),
+            lineWidth: SPINE_WIDTH * dpr,
+            rowColors: colors,
+          })
+        })
+      } else {
+        paintGeometry(ctx, spines[index] ?? null, {
+          ...band,
+          opacity: spineOpacity,
+          lineWidth: SPINE_WIDTH * dpr,
+          rowColors: colors,
+        })
+      }
 
       if (focusSpine !== null && focusSpine.panel === index) {
         paintGeometry(ctx, focusSpine.geometry, {
@@ -606,7 +736,42 @@ export function SmallMultiples({
         })
       }
     })
-  }, [panels, spines, lit, focus, focusSpine, prepare, bandOf, palette])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    panels,
+    spines,
+    lit,
+    focus,
+    focusSpine,
+    prepare,
+    bandOf,
+    palette,
+    clusterRun,
+    store,
+    selection,
+    panelOptions,
+  ])
+
+  useEffect(() => paintSpines(performance.now()), [paintSpines])
+
+  // While something is drawing in, the spine layer repaints every frame — that
+  // layer alone, straight from the frame callback. Restarted when a repaint
+  // dependency changes mid-way, so it carries on rather than stopping.
+  useEffect(() => {
+    const book = arrivals.current
+    if (book.pending.size === 0 && book.end <= performance.now()) return
+
+    let frame = requestAnimationFrame(function tick(time) {
+      for (const [key, count] of book.pending) {
+        book.at.set(key, time)
+        book.end = Math.max(book.end, time + count * SPINE_STAGGER_MS + SPINE_DRAW_IN_MS)
+      }
+      book.pending.clear()
+      paintSpines(time)
+      if (time < book.end) frame = requestAnimationFrame(tick)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [revealRequest, paintSpines])
 
   // Settled rather than applied per move: see `createHoverSettler`.
   const settler = useMemo(

@@ -8,6 +8,7 @@ const TEMPLATES = [
   { label: "Demo · 100", url: "/data/data_semilinear_dates.json" },
   { label: "Medium · 25k", url: "/data/data_25k.json" },
   { label: "Stress · 250k", url: "/data/generated/data_250k.json" },
+  { label: "Stress · 1M", url: "/data/generated/data_1m.json" },
 ] as const
 
 /**

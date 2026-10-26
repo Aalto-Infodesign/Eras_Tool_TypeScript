@@ -195,9 +195,14 @@ body {
   align-items: center;
   flex-wrap: wrap;
 }
+/* The buttons wrap to a second row rather than their labels to a second line. */
 .loader__templates {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+}
+.loader__templates .button {
+  white-space: nowrap;
 }
 .loader__error {
   color: var(--danger);
