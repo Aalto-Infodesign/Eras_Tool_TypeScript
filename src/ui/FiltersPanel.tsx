@@ -8,7 +8,7 @@ import { Panel } from "./Panel.tsx"
 import { RangeSlider } from "./RangeSlider.tsx"
 import { StackedLines } from "./StackedLines.tsx"
 
-const LABELS: Record<NumericFilter, string> = {
+export const LABELS: Record<NumericFilter, string> = {
   age: "Age",
   year: "Calendar year",
   diseaseDuration: "Disease duration",
@@ -31,6 +31,7 @@ export function FiltersPanel(): React.JSX.Element | null {
   const store = useEras((s) => s.store)
   const filters = useEras((s) => s.filters)
   const distributions = useEras((s) => s.distributions)
+  const selectionDistributions = useEras((s) => s.selectionDistributions)
   const selection = useEras((s) => s.selection)
   const selectionVersion = useEras((s) => s.selectionVersion)
   const cohortSize = useEras((s) => s.cohortSize)
@@ -156,6 +157,7 @@ export function FiltersPanel(): React.JSX.Element | null {
           value={filters[key]}
           inverted={filters.inverted[key] === true}
           distribution={distributions[key]}
+          subset={selectionDistributions?.[key] ?? null}
           onChange={(next) => setFilters({ [key]: next } as Partial<typeof filters>)}
           onInvert={() => toggleInverted(key)}
           onReset={() => resetFilter(key)}
@@ -172,6 +174,7 @@ function FilterControl({
   value,
   inverted,
   distribution,
+  subset,
   onChange,
   onInvert,
   onReset,
@@ -182,6 +185,8 @@ function FilterControl({
   value: Range | null
   inverted: boolean
   distribution: Distribution | DistributionPair
+  /** The chosen typologies' share of `distribution`, or `null` with none chosen. */
+  subset: Distribution | DistributionPair | null
   onChange: (next: Range) => void
   onInvert: () => void
   onReset: () => void
@@ -201,15 +206,8 @@ function FilterControl({
   const committed: readonly [number, number] = value === null ? bounds : [value.min, value.max]
   const shown = preview ?? committed
 
-  const curves = useMemo(() => {
-    if ("start" in distribution) {
-      return [
-        { distribution: distribution.start, className: "distribution--start", label: "starts" },
-        { distribution: distribution.end, className: "distribution--end", label: "ends" },
-      ]
-    }
-    return [{ distribution, className: "distribution--single", label: "count" }]
-  }, [distribution])
+  const curves = useMemo(() => curvesOf(distribution), [distribution])
+  const subsetCurves = useMemo(() => (subset === null ? null : curvesOf(subset)), [subset])
 
   const isActive = value !== null
 
@@ -242,6 +240,7 @@ function FilterControl({
 
       <FilterDistribution
         curves={curves}
+        subset={subsetCurves}
         bounds={bounds}
         selection={shown}
         width={CHART_WIDTH}
@@ -270,4 +269,14 @@ function FilterControl({
       )}
     </div>
   )
+}
+
+function curvesOf(distribution: Distribution | DistributionPair) {
+  if ("start" in distribution) {
+    return [
+      { distribution: distribution.start, className: "distribution--start", label: "starts" },
+      { distribution: distribution.end, className: "distribution--end", label: "ends" },
+    ]
+  }
+  return [{ distribution, className: "distribution--single", label: "count" }]
 }

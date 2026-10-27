@@ -10,6 +10,7 @@ export type PanelId =
   | "ingest"
   | "states"
   | "filters"
+  | "pipeline"
   | "clusters"
   | "paths"
   | "typologies"
@@ -35,6 +36,7 @@ export const PANELS: readonly {
   { id: "ingest", title: "Ingest" },
   { id: "states", title: "States" },
   { id: "filters", title: "Filters" },
+  { id: "pipeline", title: "Build & export" },
   { id: "clusters", title: "Clusters" },
   { id: "paths", title: "Path explorer" },
   { id: "typologies", title: "Typologies" },

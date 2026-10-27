@@ -6,6 +6,7 @@ import { DataPanel } from "./FileLoader.tsx"
 import { FiltersPanel } from "./FiltersPanel.tsx"
 import { PanelSlotContext, type PanelSlot } from "./Panel.tsx"
 import { PathExplorer } from "./PathExplorer.tsx"
+import { PipelinePanel } from "./PipelinePanel.tsx"
 import { PerfHud } from "./PerfHud.tsx"
 import { StatesPanel } from "./StatesPanel.tsx"
 import { TypologyList } from "./TypologyList.tsx"
@@ -17,6 +18,7 @@ const COMPONENTS: Readonly<Record<PanelId, () => React.JSX.Element | null>> = {
   ingest: PerfHud,
   states: StatesPanel,
   filters: FiltersPanel,
+  pipeline: PipelinePanel,
   clusters: ClusterTable,
   paths: PathExplorer,
   typologies: TypologyList,

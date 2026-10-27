@@ -10,6 +10,11 @@ interface Curve {
 
 interface Props {
   readonly curves: readonly Curve[]
+  /**
+   * The selection's share of `curves`. When present it takes over the ghost,
+   * the lit mask and the readout, and `curves` drop back to a faint backdrop.
+   */
+  readonly subset: readonly Curve[] | null
   readonly bounds: readonly [number, number]
   /** Live handle positions, so the mask follows the drag rather than the commit. */
   readonly selection: readonly [number, number]
@@ -31,9 +36,15 @@ interface Props {
  *
  * Deliberately the same width as the slider and stacked directly on it: the
  * handle sits under the feature it is cutting.
+ *
+ * With typologies chosen, the masked pair is drawn from the selection instead,
+ * over a third, fainter copy of the whole dataset. Each is scaled to its own
+ * peak: a selection of a few hundred patients would otherwise be a flat line
+ * along the axis, and what a handle needs to land on is the shape.
  */
 export function FilterDistribution({
-  curves,
+  curves: all,
+  subset,
   bounds,
   selection,
   width,
@@ -47,6 +58,8 @@ export function FilterDistribution({
 
   const toPixels = (value: number): number => ((value - lo) / span) * width
 
+  const curves = subset ?? all
+
   const paths = useMemo(
     () =>
       curves.map((curve) => ({
@@ -54,6 +67,14 @@ export function FilterDistribution({
         d: stepPath(curve.distribution, width, height),
       })),
     [curves, width, height],
+  )
+
+  const backdrop = useMemo(
+    () =>
+      subset === null
+        ? []
+        : all.map((curve) => ({ ...curve, d: stepPath(curve.distribution, width, height) })),
+    [subset, all, width, height],
   )
 
   /** Bin under the cursor, for the readout and the rulers. */
@@ -95,6 +116,13 @@ export function FilterDistribution({
         </mask>
       </defs>
 
+      {backdrop.map((curve) => (
+        <path
+          key={`${curve.className}-all`}
+          className={`distribution__backdrop ${curve.className}`}
+          d={curve.d}
+        />
+      ))}
       {paths.map((curve) => (
         <path key={curve.className} className={`distribution__ghost ${curve.className}`} d={curve.d} />
       ))}

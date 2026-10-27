@@ -651,6 +651,119 @@ body {
   margin-top: 10px;
 }
 
+/* ---------- build & export ---------- */
+
+.pipeline__format {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.pipeline__format > span {
+  margin-right: auto;
+}
+
+/* A chain: one dot per step on a rule that runs between them. */
+.pipeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pipeline__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 0 6px;
+  padding: 4px 0 6px;
+}
+.pipeline__step:not([data-last="true"])::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 14px;
+  bottom: -4px;
+  border-left: 1px solid var(--line);
+}
+.pipeline__dot {
+  position: relative;
+  margin-top: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  background: var(--surface);
+}
+.pipeline__step[data-last="true"] .pipeline__dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.pipeline__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pipeline__head,
+.pipeline__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.pipeline__label {
+  font-weight: 600;
+}
+.pipeline__count {
+  margin-left: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.pipeline__step[data-last="true"] .pipeline__count {
+  color: var(--accent);
+}
+.pipeline__detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+.pipeline__cut {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+/* Share of the dataset left, on one scale for every step. */
+.pipeline__bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.pipeline__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+}
+.pipeline__step[data-last="true"] .pipeline__bar > span {
+  background: var(--accent);
+}
+.pipeline__actions {
+  display: flex;
+  gap: 3px;
+  align-items: flex-start;
+}
+.pipeline__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 /* ---------- filters ---------- */
 
 .panel__badge {
@@ -770,6 +883,13 @@ body {
 .distribution__lit {
   fill: none;
   stroke-width: 1.25;
+}
+/* The whole dataset behind a selection's curves: there for scale, not to read. */
+.distribution__backdrop {
+  fill: none;
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.18;
 }
 .distribution__axis {
   stroke: var(--line);

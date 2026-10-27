@@ -1,12 +1,13 @@
+import { FAILS } from "../query/filters.ts"
 import type { TrajectoryStore } from "../types.ts"
 
 /**
  * Histograms behind the filter sliders.
  *
  * Each filter draws the shape of the thing it cuts, on the same x scale as the
- * slider under it, so the handles land on features you can see. Computing that
- * from the store once per dataset is what keeps the drawing free while dragging:
- * the curve never changes, only the mask over it does.
+ * slider under it, so the handles land on features you can see. The whole
+ * dataset's curves are computed once per dataset; a typology selection adds a
+ * second set over just its patients (see `failures` on `buildDistributions`).
  */
 export interface Distribution {
   /** Count per bin, left to right across `domain`. */
@@ -50,6 +51,48 @@ function emptyDistribution(domain: readonly [number, number]): Distribution {
 }
 
 /**
+ * A histogram filled one value at a time, so a builder can bin as it scans
+ * rather than first copying every value out — at a million patients that copy
+ * was most of the cost, and the selection's curves are rebuilt on every commit.
+ */
+class Bins {
+  private readonly counts: Uint32Array
+  private readonly lo: number
+  private readonly span: number
+  private n = 0
+
+  constructor(
+    private readonly domain: readonly [number, number],
+    private readonly bins = BINS,
+  ) {
+    this.lo = domain[0]
+    this.span = domain[1] - domain[0]
+    this.counts = new Uint32Array(bins)
+  }
+
+  /** Values outside the domain are clamped into the end bins. */
+  add(value: number): void {
+    const { bins, counts } = this
+    const slot = Math.min(bins - 1, Math.max(0, Math.floor(((value - this.lo) / this.span) * bins)))
+    counts[slot] = (counts[slot] as number) + 1
+    this.n += 1
+  }
+
+  done(): Distribution {
+    const { domain, span, bins, counts } = this
+    if (this.n === 0 || !Number.isFinite(span) || span <= 0) return emptyDistribution(domain)
+
+    let max = 0
+    for (let b = 0; b < bins; b++) {
+      const c = counts[b] as number
+      if (c > max) max = c
+    }
+
+    return { counts, max, domain, binWidth: span / bins }
+  }
+}
+
+/**
  * Bins `values` over `domain`; values outside it are clamped into the end bins.
  *
  * Exported for the Sankey's distribution, which bins a pinned item's values
@@ -61,25 +104,9 @@ export function histogram(
   domain: readonly [number, number],
   bins = BINS,
 ): Distribution {
-  const [lo, hi] = domain
-  const span = hi - lo
-
-  if (count === 0 || !Number.isFinite(span) || span <= 0) return emptyDistribution(domain)
-
-  const counts = new Uint32Array(bins)
-  for (let i = 0; i < count; i++) {
-    const value = values[i] as number
-    const slot = Math.min(bins - 1, Math.max(0, Math.floor(((value - lo) / span) * bins)))
-    counts[slot] = (counts[slot] as number) + 1
-  }
-
-  let max = 0
-  for (let b = 0; b < bins; b++) {
-    const c = counts[b] as number
-    if (c > max) max = c
-  }
-
-  return { counts, max, domain, binWidth: span / bins }
+  const out = new Bins(domain, bins)
+  for (let i = 0; i < count; i++) out.add(values[i] as number)
+  return out.done()
 }
 
 /** First and last value of each patient's run, which is what a span filter cuts. */
@@ -87,15 +114,15 @@ function spanOf(
   store: TrajectoryStore,
   column: Float32Array,
   domain: readonly [number, number],
+  counts: (p: number) => boolean,
 ): DistributionPair {
-  const starts = new Float64Array(store.patientCount)
-  const ends = new Float64Array(store.patientCount)
-  let n = 0
+  const starts = new Bins(domain)
+  const ends = new Bins(domain)
 
   for (let p = 0; p < store.patientCount; p++) {
+    if (!counts(p)) continue
     const start = store.offsets[p] as number
     const end = store.offsets[p + 1] as number
-    if (end === start) continue // spliced empty; see model/reshape.ts
 
     // The run is not sorted by value, so the span is a scan, not the endpoints.
     let lo = Infinity
@@ -106,43 +133,53 @@ function spanOf(
       if (value > hi) hi = value
     }
 
-    starts[n] = lo
-    ends[n] = hi
-    n += 1
+    starts.add(lo)
+    ends.add(hi)
   }
 
-  return { start: histogram(starts, n, domain), end: histogram(ends, n, domain) }
+  return { start: starts.done(), end: ends.done() }
 }
 
-export function buildDistributions(store: TrajectoryStore): FilterDistributions {
+/**
+ * Without `failures`, every live patient, as the sliders draw the whole dataset.
+ *
+ * With them — one byte per patient, as `filterFailures` writes them, plus any
+ * bit the caller adds such as `UNSELECTED` — each filter's curve counts the
+ * patients that fail nothing *but that filter*. The usual crossfilter rule: a
+ * filter's own range must not shape its own histogram, or everything outside
+ * the handles would read as empty, while every other cut has to, or the lit part
+ * would include patients the chart is not drawing.
+ */
+export function buildDistributions(store: TrajectoryStore, failures?: Uint8Array): FilterDistributions {
   const { extents } = store
 
+  const keptBy = (own: number) =>
+    failures === undefined
+      ? (p: number) => (store.offsets[p + 1] as number) !== (store.offsets[p] as number) // spliced empty; see model/reshape.ts
+      : (p: number) => ((failures[p] as number) & ~own) === 0
+
   // Patient-level: one value each, empty patients excluded.
-  const diseaseDurations = new Float64Array(store.patientCount)
-  let patients = 0
+  const diseaseDurations = new Bins(extents.diseaseDuration)
+  const countsDisease = keptBy(FAILS.diseaseDuration)
   for (let p = 0; p < store.patientCount; p++) {
-    if ((store.offsets[p + 1] as number) === (store.offsets[p] as number)) continue
-    diseaseDurations[patients] = store.diseaseDuration[p] as number
-    patients += 1
+    if (countsDisease(p)) diseaseDurations.add(store.diseaseDuration[p] as number)
   }
 
   // Link-level: every transition, excluding each patient's closing self-link,
   // which carries a zero that is a convention rather than a measurement.
-  const durations = new Float64Array(store.eventCount)
-  let links = 0
+  const durations = new Bins(extents.duration)
+  const countsDuration = keptBy(FAILS.duration)
   for (let p = 0; p < store.patientCount; p++) {
+    if (!countsDuration(p)) continue
     const start = store.offsets[p] as number
     const end = store.offsets[p + 1] as number
-    for (let e = start; e < end - 1; e++) {
-      durations[links] = store.durations[e] as number
-      links += 1
-    }
+    for (let e = start; e < end - 1; e++) durations.add(store.durations[e] as number)
   }
 
   return {
-    age: spanOf(store, store.ages, extents.age),
-    year: spanOf(store, store.years, extents.year),
-    diseaseDuration: histogram(diseaseDurations, patients, extents.diseaseDuration),
-    duration: histogram(durations, links, extents.duration),
+    age: spanOf(store, store.ages, extents.age, keptBy(FAILS.age)),
+    year: spanOf(store, store.years, extents.year, keptBy(FAILS.year)),
+    diseaseDuration: diseaseDurations.done(),
+    duration: durations.done(),
   }
 }

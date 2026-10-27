@@ -9,11 +9,19 @@ import { fromPayload } from "../core/model/transfer.ts"
 import {
   applyFilters,
   emptyFilters,
+  filterFailures,
   intersectTypologies,
+  UNSELECTED,
   type FilterState,
   type NumericFilter,
 } from "../core/query/filters.ts"
 import { visibleExtent } from "../core/query/extent.ts"
+import {
+  activeSteps,
+  isolatedClusters,
+  reconcileOrder,
+  type PipelineStep,
+} from "../core/query/pipeline.ts"
 import {
   emptyHistory,
   pushHistory,
@@ -261,6 +269,21 @@ interface ErasState {
   filters: FilterState
   /** Histograms behind the sliders. Rebuilt whenever the dataset is reshaped. */
   distributions: FilterDistributions | null
+  /**
+   * The same histograms over the chosen typologies only, each with every
+   * filter applied but its own — see `buildDistributions`. `null` while nothing
+   * is chosen, which is when the whole-dataset curves *are* the selection.
+   * Re-derived with the masks, so it moves with every filter and every pick.
+   */
+  selectionDistributions: FilterDistributions | null
+  /**
+   * The steps narrowing the selection, in the order they were applied — the
+   * Build & export panel's chain. Kept by a subscription at the bottom of this
+   * file rather than by the actions, because a dozen of them can add or drop a
+   * step (undo and a reshape among them), and one missed would misorder the
+   * chain without anything looking wrong.
+   */
+  pipelineOrder: readonly PipelineStep[]
   selectedTypologies: readonly string[]
   /**
    * The path explorer's walk in progress: the state picked at each step from
@@ -532,6 +555,8 @@ const initial = {
   selectionVersion: 0,
   filters: emptyFilters,
   distributions: null,
+  selectionDistributions: null,
+  pipelineOrder: [] as readonly PipelineStep[],
   selectedTypologies: [],
   pathSteps: [],
   expectations: [] as readonly Expectation[],
@@ -569,6 +594,9 @@ const initial = {
 }
 
 export const useEras = create<ErasState>()((set, get) => {
+  /** Per-patient filter failures for `selectionDistributions`, reused across scans. */
+  let failures = new Uint8Array(0)
+
   /**
    * Recomputes the mask in place and bumps the version. Never allocates a new
    * Selection, so this is safe to call from a pointer-move handler.
@@ -589,6 +617,8 @@ export const useEras = create<ErasState>()((set, get) => {
     applyFilters(store, { ...filters, duration: null }, population)
     applyFilters(store, filters, selection)
 
+    let selectionDistributions: FilterDistributions | null = null
+
     if (selectedTypologies.length > 0) {
       // A Set, not `includes`: a path selection can name hundreds of typologies
       // at once, and the quadratic scan that was fine for a handful of clicked
@@ -599,9 +629,25 @@ export const useEras = create<ErasState>()((set, get) => {
         if (keys.has(typology.key)) chosen.push(typology.patients)
       }
       intersectTypologies(selection, chosen)
+
+      /*
+       * The sliders' subplots. A third scan, and an exhaustive one, so it only
+       * runs while a selection exists: with nothing chosen the subplots would
+       * just be the whole-dataset curves again.
+       */
+      if (failures.length !== store.patientCount) failures = new Uint8Array(store.patientCount)
+      filterFailures(store, filters, failures)
+      for (let p = 0; p < failures.length; p++) failures[p] = (failures[p] as number) | UNSELECTED
+      for (const patients of chosen) {
+        for (let i = 0; i < patients.length; i++) {
+          const p = patients[i] as number
+          failures[p] = (failures[p] as number) & ~UNSELECTED
+        }
+      }
+      selectionDistributions = buildDistributions(store, failures)
     }
 
-    set({ selectionVersion: get().selectionVersion + 1 })
+    set({ selectionVersion: get().selectionVersion + 1, selectionDistributions })
   }
 
   /**
@@ -806,6 +852,7 @@ export const useEras = create<ErasState>()((set, get) => {
       // `buildStore` drops empty trajectories, so at ingest every row is live.
       cohortSize: store.patientCount,
       distributions: buildDistributions(store),
+      selectionDistributions: null,
       states: result.states,
       stateOrder: result.stateOrder,
       visibleStates: result.stateOrder,
@@ -1388,4 +1435,22 @@ export const useEras = create<ErasState>()((set, get) => {
       set({ ...initial, rendererKind: get().rendererKind })
     },
   }
+})
+
+/**
+ * The clusters isolating the chart on screen: only the single-typology
+ * Trajectories chart narrows to them. See `isolatedClusters`.
+ */
+export function isolatedClustersOf(state: ErasState): readonly number[] {
+  const focusedKey = state.view === "trajectories" ? focusedTypologyOf(state.selectedTypologies) : null
+  return isolatedClusters(clusterRunOf(state), state.selectedClusters, focusedKey)
+}
+
+useEras.subscribe((state) => {
+  const next = reconcileOrder(
+    state.pipelineOrder,
+    activeSteps(state.filters, state.selectedTypologies, isolatedClustersOf(state)),
+  )
+  // Identity when nothing changed, so this settles after one write.
+  if (next !== state.pipelineOrder) useEras.setState({ pipelineOrder: next })
 })
