@@ -831,7 +831,7 @@ body {
 .filter {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 5px;
 }
 .filter__head {
   display: flex;
@@ -874,6 +874,7 @@ body {
 .distribution {
   display: block;
   overflow: visible;
+  padding-top: 0.5rem;
 }
 .distribution__ghost {
   fill: none;
@@ -883,13 +884,6 @@ body {
 .distribution__lit {
   fill: none;
   stroke-width: 1.25;
-}
-/* The whole dataset behind a selection's curves: there for scale, not to read. */
-.distribution__backdrop {
-  fill: none;
-  stroke-width: 1;
-  stroke-dasharray: 2 2;
-  opacity: 0.18;
 }
 .distribution__axis {
   stroke: var(--line);
@@ -956,6 +950,16 @@ body {
 }
 .filters__axis .button:first-child {
   flex: 1;
+}
+.filters__source {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.filters__source > span {
+  margin-right: auto;
 }
 .filters__axis-note {
   margin: 0;

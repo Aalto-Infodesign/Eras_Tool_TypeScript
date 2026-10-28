@@ -43,6 +43,17 @@ export function FiltersPanel(): React.JSX.Element | null {
   const fitXDomain = useEras((s) => s.fitXDomain)
   const resetXDomain = useEras((s) => s.resetXDomain)
 
+  /*
+   * Which population the curves describe. The *preference* is what is stored,
+   * not what is drawn: with nothing selected the dataset is drawn either way,
+   * and a later selection should come back to whatever was picked last.
+   *
+   * One or the other rather than both overlaid, so a chart only ever has one
+   * y scale — a selection over the dataset needs either two scales, which
+   * cannot be compared, or one, which flattens the selection to the axis.
+   */
+  const [curveSource, setCurveSource] = useState<"dataset" | "selection">("selection")
+
   const bounds = useMemo<Record<NumericFilter, readonly [number, number]> | null>(() => {
     if (store === null) return null
     return {
@@ -59,6 +70,12 @@ export function FiltersPanel(): React.JSX.Element | null {
   )
 
   if (store === null || selection === null || bounds === null || distributions === null) return null
+
+  const curveData =
+    curveSource === "selection" && selectionDistributions !== null
+      ? selectionDistributions
+      : distributions
+  const showSelection = curveData !== distributions
 
   return (
     <Panel
@@ -148,6 +165,33 @@ export function FiltersPanel(): React.JSX.Element | null {
 
       <StackedLines width={CHART_WIDTH} height={STACKED_HEIGHT} />
 
+      <div className="filters__source" role="group" aria-label="Distribution curves">
+        <span>Curves</span>
+        <button
+          type="button"
+          className="button button--tiny"
+          data-selected={!showSelection}
+          title="Every patient in the dataset"
+          onClick={() => setCurveSource("dataset")}
+        >
+          Dataset
+        </button>
+        <button
+          type="button"
+          className="button button--tiny"
+          data-selected={showSelection}
+          disabled={selectionDistributions === null}
+          title={
+            selectionDistributions === null
+              ? "Select typologies to see their distributions"
+              : "The selected typologies, each filter applied but its own"
+          }
+          onClick={() => setCurveSource("selection")}
+        >
+          Selection
+        </button>
+      </div>
+
       {(Object.keys(LABELS) as NumericFilter[]).map((key) => (
         <FilterControl
           key={key}
@@ -156,8 +200,7 @@ export function FiltersPanel(): React.JSX.Element | null {
           bounds={bounds[key]}
           value={filters[key]}
           inverted={filters.inverted[key] === true}
-          distribution={distributions[key]}
-          subset={selectionDistributions?.[key] ?? null}
+          distribution={curveData[key]}
           onChange={(next) => setFilters({ [key]: next } as Partial<typeof filters>)}
           onInvert={() => toggleInverted(key)}
           onReset={() => resetFilter(key)}
@@ -174,7 +217,6 @@ function FilterControl({
   value,
   inverted,
   distribution,
-  subset,
   onChange,
   onInvert,
   onReset,
@@ -185,8 +227,6 @@ function FilterControl({
   value: Range | null
   inverted: boolean
   distribution: Distribution | DistributionPair
-  /** The chosen typologies' share of `distribution`, or `null` with none chosen. */
-  subset: Distribution | DistributionPair | null
   onChange: (next: Range) => void
   onInvert: () => void
   onReset: () => void
@@ -207,7 +247,6 @@ function FilterControl({
   const shown = preview ?? committed
 
   const curves = useMemo(() => curvesOf(distribution), [distribution])
-  const subsetCurves = useMemo(() => (subset === null ? null : curvesOf(subset)), [subset])
 
   const isActive = value !== null
 
@@ -240,7 +279,6 @@ function FilterControl({
 
       <FilterDistribution
         curves={curves}
-        subset={subsetCurves}
         bounds={bounds}
         selection={shown}
         width={CHART_WIDTH}
