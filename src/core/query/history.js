@@ -1,17 +1,3 @@
-/**
- * Undo and redo for the typology selection.
- *
- * The Sankey's shape comes from the selection, so every "Show only these" and
- * "Open in Trajectories" narrows the very chart it was clicked in — and without
- * a way back, drilling down would erase the overview that prompted it. The
- * original had a history for its id selection, but it lived in the chart
- * component (lost on every view switch), never saw changes made elsewhere (so
- * the next union brought cleared ids back), and pushed an entry even when
- * nothing had changed. This one is store-level, sees every selection-changing
- * action, and skips no-ops.
- *
- * Pure and immutable: the store keeps a `SelectionHistory` and swaps it.
- */
 export const emptyHistory = { past: [], future: [] };
 /**
  * Steps kept. Snapshots share their arrays with the store rather than copying
@@ -19,11 +5,12 @@ export const emptyHistory = { past: [], future: [] };
  * reference per entry.
  */
 export const HISTORY_LIMIT = 50;
-/** Just the three fields — pass the store's state straight in. */
+/** Just the selection fields — pass the store's state straight in. */
 export function snapshotOf(state) {
     return {
         selectedTypologies: state.selectedTypologies,
-        pathPrefix: state.pathPrefix,
+        pathSteps: state.pathSteps,
+        activeExpectations: state.activeExpectations,
         selectedClusters: state.selectedClusters,
     };
 }
@@ -35,15 +22,17 @@ const sameSet = (a, b) => {
     const set = new Set(a);
     return b.every((value) => set.has(value));
 };
-const sameSequence = (a, b) => a === b || (a.length === b.length && a.every((value, i) => value === b[i]));
+/** Step by step: a path is ordered. */
+const sameSteps = (a, b) => a === b || (a.length === b.length && a.every((state, i) => state === b[i]));
 /**
- * Whether two snapshots select the same thing. Typologies and clusters compare
- * as sets — the order they were picked in is invisible — and the path prefix as
- * a sequence, because it is one.
+ * Whether two snapshots select the same thing. Typologies, expectations and
+ * clusters compare as sets — the order they were picked in is invisible — and
+ * the path steps as a sequence.
  */
 export function sameSnapshot(a, b) {
     return (sameSet(a.selectedTypologies, b.selectedTypologies) &&
-        sameSequence(a.pathPrefix, b.pathPrefix) &&
+        sameSteps(a.pathSteps, b.pathSteps) &&
+        sameSet(a.activeExpectations, b.activeExpectations) &&
         sameSet(a.selectedClusters, b.selectedClusters));
 }
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useEras } from "../app/store.ts"
 import { clusterMembers, medoidPatients } from "../core/cluster/medoids.ts"
@@ -11,6 +11,7 @@ import { panelTypologies, repeatedSteps, sequenceLabels } from "../core/stats/si
 import type { TrajectoryStore, Typology } from "../core/types.ts"
 import { StateDots } from "./StateDots.tsx"
 import { createHoverSettler, HIGHLIGHT_OPACITY } from "./hover.ts"
+import { exportMemberships } from "./quickExport.ts"
 import { useAnimatedScalar } from "./useAnimatedView.ts"
 import { useClusterRun } from "./useClusterRun.ts"
 
@@ -643,114 +644,119 @@ export function SmallMultiples({
   // Layer 3 — the summaries, and whatever is being pointed at. Cheap by
   // construction: a handful of spines per panel, and one cluster's members.
   // `clock` places the spines still drawing in; see `arrivals`.
-  const paintSpines = useCallback((clock: number) => {
-    const dpr = window.devicePixelRatio || 1
-    const ctx = prepare(spinesRef.current, dpr)
-    if (ctx === null) return
+  const paintSpines = useCallback(
+    (clock: number) => {
+      const dpr = window.devicePixelRatio || 1
+      const ctx = prepare(spinesRef.current, dpr)
+      if (ctx === null) return
 
-    const parts = spineParts.current
-    if (parts.spines !== spines) {
-      parts.spines = spines
-      parts.byKey = new Map()
-    }
-    const mask = selection?.mask ?? null
-    const drawingIn = (key: string, result: TypologyClusters): Geometry[] => {
-      let geometries = parts.byKey.get(key)
-      if (geometries === undefined) {
-        const order = Array.from({ length: result.k }, (_, cluster) => cluster)
-          .filter((cluster) => mask === null || mask[result.medoidPatient[cluster] as number] === 1)
-          .sort((a, b) => (result.sizes[b] as number) - (result.sizes[a] as number))
-        geometries = order.map((cluster) =>
-          buildGeometry(
-            store as TrajectoryStore,
-            Uint32Array.of(result.medoidPatient[cluster] as number),
-            panelOptions,
-          ),
-        )
-        parts.byKey.set(key, geometries)
+      const parts = spineParts.current
+      if (parts.spines !== spines) {
+        parts.spines = spines
+        parts.byKey = new Map()
       }
-      return geometries
-    }
-
-    panels.forEach((panel, index) => {
-      const band = bandOf(index, panel, dpr)
-      const colors = panel.steps.map((state) => palette.css[state] ?? "currentColor")
-
-      // The cluster being pointed at, over the field it was drawn out of.
-      if (lit !== null && lit.panel === index && focus > 0) {
-        paintGeometry(ctx, lit.members, {
-          ...band,
-          opacity: HIGHLIGHT_OPACITY * focus,
-          lineWidth: dpr,
-          rowColors: colors,
-        })
+      const mask = selection?.mask ?? null
+      const drawingIn = (key: string, result: TypologyClusters): Geometry[] => {
+        let geometries = parts.byKey.get(key)
+        if (geometries === undefined) {
+          const order = Array.from({ length: result.k }, (_, cluster) => cluster)
+            .filter(
+              (cluster) => mask === null || mask[result.medoidPatient[cluster] as number] === 1,
+            )
+            .sort((a, b) => (result.sizes[b] as number) - (result.sizes[a] as number))
+          geometries = order.map((cluster) =>
+            buildGeometry(
+              store as TrajectoryStore,
+              Uint32Array.of(result.medoidPatient[cluster] as number),
+              panelOptions,
+            ),
+          )
+          parts.byKey.set(key, geometries)
+        }
+        return geometries
       }
 
-      /*
-       * Every spine, then the one being pointed at again on top. Without the
-       * first pass stepping back, a highlighted cluster's members were the only
-       * thing that changed on screen — and they sit *under* a layer of spines
-       * drawn at full strength, so there was nothing to see.
-       *
-       * This pass answers to `focusSpine`, not to the settled highlight, which
-       * is what makes aiming at a spine feel direct while the field below it
-       * still waits for the pointer to stop.
-       */
-      const spineOpacity = focusSpine === null ? SPINE_OPACITY : SPINE_DIMMED_OPACITY
-      const result = clusterRun?.byTypology.get(panel.typology.key)
-      const arrived = arrivals.current.at.get(panel.typology.key) ?? -Infinity
+      panels.forEach((panel, index) => {
+        const band = bandOf(index, panel, dpr)
+        const colors = panel.steps.map((state) => palette.css[state] ?? "currentColor")
 
-      if (Number.isNaN(arrived)) {
-        // Landed, waiting for the frame that starts its draw-in.
-      } else if (
-        store !== null &&
-        result !== undefined &&
-        clock < arrived + result.k * SPINE_STAGGER_MS + SPINE_DRAW_IN_MS
-      ) {
-        // Just landed: each medoid in its turn, fading up to full strength.
-        drawingIn(panel.typology.key, result).forEach((geometry, i) => {
-          const progress = (clock - arrived - i * SPINE_STAGGER_MS) / SPINE_DRAW_IN_MS
-          if (progress <= 0) return
-          paintGeometry(ctx, geometry, {
+        // The cluster being pointed at, over the field it was drawn out of.
+        if (lit !== null && lit.panel === index && focus > 0) {
+          paintGeometry(ctx, lit.members, {
             ...band,
-            opacity: spineOpacity * Math.min(1, progress),
+            opacity: HIGHLIGHT_OPACITY * focus,
+            lineWidth: dpr,
+            rowColors: colors,
+          })
+        }
+
+        /*
+         * Every spine, then the one being pointed at again on top. Without the
+         * first pass stepping back, a highlighted cluster's members were the only
+         * thing that changed on screen — and they sit *under* a layer of spines
+         * drawn at full strength, so there was nothing to see.
+         *
+         * This pass answers to `focusSpine`, not to the settled highlight, which
+         * is what makes aiming at a spine feel direct while the field below it
+         * still waits for the pointer to stop.
+         */
+        const spineOpacity = focusSpine === null ? SPINE_OPACITY : SPINE_DIMMED_OPACITY
+        const result = clusterRun?.byTypology.get(panel.typology.key)
+        const arrived = arrivals.current.at.get(panel.typology.key) ?? -Infinity
+
+        if (Number.isNaN(arrived)) {
+          // Landed, waiting for the frame that starts its draw-in.
+        } else if (
+          store !== null &&
+          result !== undefined &&
+          clock < arrived + result.k * SPINE_STAGGER_MS + SPINE_DRAW_IN_MS
+        ) {
+          // Just landed: each medoid in its turn, fading up to full strength.
+          drawingIn(panel.typology.key, result).forEach((geometry, i) => {
+            const progress = (clock - arrived - i * SPINE_STAGGER_MS) / SPINE_DRAW_IN_MS
+            if (progress <= 0) return
+            paintGeometry(ctx, geometry, {
+              ...band,
+              opacity: spineOpacity * Math.min(1, progress),
+              lineWidth: SPINE_WIDTH * dpr,
+              rowColors: colors,
+            })
+          })
+        } else {
+          paintGeometry(ctx, spines[index] ?? null, {
+            ...band,
+            opacity: spineOpacity,
             lineWidth: SPINE_WIDTH * dpr,
             rowColors: colors,
           })
-        })
-      } else {
-        paintGeometry(ctx, spines[index] ?? null, {
-          ...band,
-          opacity: spineOpacity,
-          lineWidth: SPINE_WIDTH * dpr,
-          rowColors: colors,
-        })
-      }
+        }
 
-      if (focusSpine !== null && focusSpine.panel === index) {
-        paintGeometry(ctx, focusSpine.geometry, {
-          ...band,
-          opacity: SPINE_OPACITY,
-          lineWidth: SPINE_FOCUS_WIDTH * dpr,
-          rowColors: colors,
-        })
-      }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    panels,
-    spines,
-    lit,
-    focus,
-    focusSpine,
-    prepare,
-    bandOf,
-    palette,
-    clusterRun,
-    store,
-    selection,
-    panelOptions,
-  ])
+        if (focusSpine !== null && focusSpine.panel === index) {
+          paintGeometry(ctx, focusSpine.geometry, {
+            ...band,
+            opacity: SPINE_OPACITY,
+            lineWidth: SPINE_FOCUS_WIDTH * dpr,
+            rowColors: colors,
+          })
+        }
+      })
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [
+      panels,
+      spines,
+      lit,
+      focus,
+      focusSpine,
+      prepare,
+      bandOf,
+      palette,
+      clusterRun,
+      store,
+      selection,
+      panelOptions,
+    ],
+  )
 
   useEffect(() => paintSpines(performance.now()), [paintSpines])
 
@@ -859,86 +865,112 @@ export function SmallMultiples({
         {panels.map((panel, index) => {
           const rect = rectOf(index)
           const onSpine = focusSpine?.panel === index
+          const clustered = clusterRun?.byTypology.has(panel.typology.key) === true
           return (
-            <button
-              key={panel.typology.key}
-              type="button"
-              className="multiples__panel"
-              data-hovered={hovered === index}
-              data-spine={onSpine}
-              style={{
-                left: rect.left,
-                top: rect.top,
-                width: rect.width,
-                height: rect.height,
-              }}
-              /*
-               * No `title`: a native tooltip appears under the pointer, which is
-               * where the dots' own panel appears, so the browser covered the
-               * sequence with a worse rendering of it. The hint lives in that
-               * panel now, which is also where someone reading the run is
-               * already looking.
-               */
-              aria-label={`${panel.typology.key} — open it alone, full size`}
-              onPointerEnter={() => setHovered(index)}
-              onPointerMove={(event) => handleMove(index, event)}
-              onPointerLeave={() => handleLeave(index)}
-              onClick={(event) => {
+            <Fragment key={panel.typology.key}>
+              <button
+                type="button"
+                className="multiples__panel"
+                data-hovered={hovered === index}
+                data-spine={onSpine}
+                style={{
+                  left: rect.left,
+                  top: rect.top,
+                  width: rect.width,
+                  height: rect.height,
+                }}
                 /*
-                 * A spine under the cursor makes the click mean the cluster, not
-                 * the panel — and it opens the typology *and* isolates it in one
-                 * move, because isolating a cluster inside a grid of eight other
-                 * panels would be a change you could not see.
+                 * No `title`: a native tooltip appears under the pointer, which is
+                 * where the dots' own panel appears, so the browser covered the
+                 * sequence with a worse rendering of it. The hint lives in that
+                 * panel now, which is also where someone reading the run is
+                 * already looking.
                  */
-                const cluster = clusterAt(
-                  index,
-                  event.clientX,
-                  event.clientY,
-                  event.currentTarget.getBoundingClientRect(),
-                )
-                if (cluster !== null) focusCluster(panel.typology.key, cluster)
-                else selectTypologies([panel.typology.key])
-              }}
-            >
-              {/*
-               * Under the ladder, not over it: a caption belongs where the eye
-               * lands after reading the shape, and a header pushed every panel's
-               * first row down by its own height.
-               */}
-              <span className="multiples__foot" style={{ height: FOOTER }}>
-                <span className="multiples__key">
-                  <StateDots
-                    states={panel.steps}
-                    labels={panel.labels}
-                    repeated={panel.repeated}
-                    palette={palette}
-                    // The compact grid names the hovered card's rules beside it.
-                    reveal={isDetailed}
-                    hint={
-                      onSpine
-                        ? "click the spine to isolate that cluster"
-                        : "click to open this typology full size"
+                aria-label={`${panel.typology.key} — open it alone, full size`}
+                onPointerEnter={() => setHovered(index)}
+                onPointerMove={(event) => handleMove(index, event)}
+                onPointerLeave={() => handleLeave(index)}
+                onClick={(event) => {
+                  /*
+                   * A spine under the cursor makes the click mean the cluster, not
+                   * the panel — and it opens the typology *and* isolates it in one
+                   * move, because isolating a cluster inside a grid of eight other
+                   * panels would be a change you could not see.
+                   */
+                  const cluster = clusterAt(
+                    index,
+                    event.clientX,
+                    event.clientY,
+                    event.currentTarget.getBoundingClientRect(),
+                  )
+                  if (cluster !== null) focusCluster(panel.typology.key, cluster)
+                  else selectTypologies([panel.typology.key])
+                }}
+              >
+                {/*
+                 * Under the ladder, not over it: a caption belongs where the eye
+                 * lands after reading the shape, and a header pushed every panel's
+                 * first row down by its own height.
+                 */}
+                <span className="multiples__foot" style={{ height: FOOTER }}>
+                  <span className="multiples__key">
+                    <StateDots
+                      states={panel.steps}
+                      labels={panel.labels}
+                      repeated={panel.repeated}
+                      palette={palette}
+                      // The compact grid names the hovered card's rules beside it.
+                      reveal={isDetailed}
+                      hint={
+                        onSpine
+                          ? "click the spine to isolate that cluster"
+                          : "click to open this typology full size"
+                      }
+                    />
+                    <span className="multiples__steps">
+                      {isDetailed ? panel.typology.key : `${panel.steps.length} steps`}
+                    </span>{" "}
+                  </span>
+                  <span
+                    className="multiples__size"
+                    data-sampled={panel.drawn < panel.size}
+                    title={
+                      panel.drawn < panel.size
+                        ? `${panel.size.toLocaleString()} patients — every ${Math.round(
+                            panel.size / panel.drawn,
+                          )}th drawn, which is as many as the panel can show`
+                        : `${panel.size.toLocaleString()} patients`
                     }
-                  />
-                  <span className="multiples__steps">
-                    {isDetailed ? panel.typology.key : `${panel.steps.length} steps`}
+                  >
+                    {panel.size.toLocaleString()}
                   </span>
                 </span>
-                <span
-                  className="multiples__size"
-                  data-sampled={panel.drawn < panel.size}
-                  title={
-                    panel.drawn < panel.size
-                      ? `${panel.size.toLocaleString()} patients — every ${Math.round(
-                          panel.size / panel.drawn,
-                        )}th drawn, which is as many as the panel can show`
-                      : `${panel.size.toLocaleString()} patients`
-                  }
-                >
-                  {panel.size.toLocaleString()}
-                </span>
-              </span>
-            </button>
+              </button>
+              {/*
+               * Beside the card rather than in it — a button inside a button is
+               * invalid — and pinned to its corner. Entering it keeps the card
+               * hovered, or the button would vanish under the pointer reaching it.
+               */}
+              <button
+                type="button"
+                className="button button--tiny multiples__export"
+                data-shown={hovered === index}
+                style={{ left: rect.left + rect.width, top: rect.top + rect.height }}
+                // disabled={!clustered || panel.size === 0}
+                aria-disabled={!clustered || panel.size === 0}
+                title={
+                  clustered
+                    ? "Export this typology's cluster memberships (TSV)"
+                    : "Not clustered yet — nothing to export"
+                }
+                aria-label={`Export the memberships of ${panel.typology.key}`}
+                onPointerEnter={() => setHovered(index)}
+                onPointerLeave={() => setHovered((current) => (current === index ? null : current))}
+                onClick={() => exportMemberships(panel.typology.key)}
+              >
+                ⤓ TSV
+              </button>
+            </Fragment>
           )
         })}
 

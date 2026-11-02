@@ -104,13 +104,62 @@ export function collectTypologies(tree, id) {
     }
     return out;
 }
-/** Does this sequence begin with `path`? The store's side of a path selection. */
-export function startsWithPath(states, path) {
-    if (path.length > states.length)
+/** Does this sequence start with `steps`? The store's side of a path selection. */
+export function matchesSteps(states, steps) {
+    if (steps.length > states.length)
         return false;
-    for (let i = 0; i < path.length; i++) {
-        if (states[i] !== path[i])
+    for (let i = 0; i < steps.length; i++) {
+        if (states[i] !== steps[i])
             return false;
     }
     return true;
+}
+/**
+ * A saved path as the spliced data reads it: removed states cut out of it, as
+ * they are cut out of every trajectory. `a → b → c` with `b` removed is `a → c`.
+ */
+export function effectiveSteps(steps, removed) {
+    return removed.size === 0 || !steps.some((state) => removed.has(state))
+        ? steps
+        : steps.filter((state) => !removed.has(state));
+}
+/**
+ * The tree nodes the walk passes through, root first: `[0]` alone for the
+ * empty walk, and the last entry is the node whose subtree is selected. Stops
+ * short at a step the tree does not have.
+ */
+export function walkSteps(tree, steps) {
+    const nodes = [0];
+    for (const state of steps) {
+        const parent = tree.nodes[nodes[nodes.length - 1]];
+        const next = parent.children.find((child) => tree.nodes[child].state === state);
+        if (next === undefined)
+            break;
+        nodes.push(next);
+    }
+    return nodes;
+}
+/**
+ * Picks `state` at `depth`, or drops it — and everything after — when it is
+ * already the pick there. `depth` may be one past the end, which takes the next
+ * step. Changing an earlier step keeps the later ones, which survive when the
+ * new prefix leads to them too.
+ *
+ * Says nothing about whether the result still exists — `normalizeSteps` does.
+ */
+export function toggleStep(steps, depth, state) {
+    return steps[depth] === state
+        ? steps.slice(0, depth)
+        : [...steps.slice(0, depth), state, ...steps.slice(depth + 1)];
+}
+/**
+ * Cuts the walk at the first step the tree does not offer where it was picked.
+ *
+ * Changing an earlier step changes what a later one can follow — swap `a` for
+ * `x` and the `c` that only ever followed `a` has nothing to follow. Returns
+ * `steps` itself when it was already valid, so a caller can compare by reference.
+ */
+export function normalizeSteps(tree, steps) {
+    const reached = walkSteps(tree, steps).length - 1;
+    return reached === steps.length ? steps : steps.slice(0, reached);
 }

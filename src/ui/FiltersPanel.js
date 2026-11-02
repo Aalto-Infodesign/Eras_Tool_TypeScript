@@ -5,7 +5,7 @@ import { FilterDistribution } from "./FilterDistribution.tsx";
 import { Panel } from "./Panel.tsx";
 import { RangeSlider } from "./RangeSlider.tsx";
 import { StackedLines } from "./StackedLines.tsx";
-const LABELS = {
+export const LABELS = {
     age: "Age",
     year: "Calendar year",
     diseaseDuration: "Disease duration",
@@ -25,6 +25,7 @@ export function FiltersPanel() {
     const store = useEras((s) => s.store);
     const filters = useEras((s) => s.filters);
     const distributions = useEras((s) => s.distributions);
+    const selectionDistributions = useEras((s) => s.selectionDistributions);
     const selection = useEras((s) => s.selection);
     const selectionVersion = useEras((s) => s.selectionVersion);
     const cohortSize = useEras((s) => s.cohortSize);
@@ -35,6 +36,16 @@ export function FiltersPanel() {
     const xDomainOverride = useEras((s) => s.xDomainOverride);
     const fitXDomain = useEras((s) => s.fitXDomain);
     const resetXDomain = useEras((s) => s.resetXDomain);
+    /*
+     * Which population the curves describe. The *preference* is what is stored,
+     * not what is drawn: with nothing selected the dataset is drawn either way,
+     * and a later selection should come back to whatever was picked last.
+     *
+     * One or the other rather than both overlaid, so a chart only ever has one
+     * y scale — a selection over the dataset needs either two scales, which
+     * cannot be compared, or one, which flattens the selection to the axis.
+     */
+    const [curveSource, setCurveSource] = useState("selection");
     const bounds = useMemo(() => {
         if (store === null)
             return null;
@@ -48,6 +59,10 @@ export function FiltersPanel() {
     const active = useMemo(() => Object.keys(LABELS).filter((key) => filters[key] !== null), [filters]);
     if (store === null || selection === null || bounds === null || distributions === null)
         return null;
+    const curveData = curveSource === "selection" && selectionDistributions !== null
+        ? selectionDistributions
+        : distributions;
+    const showSelection = curveData !== distributions;
     return (_jsxs(Panel, { title: "Filters", count: _jsxs("span", { children: [active.length > 0 && _jsx("em", { className: "panel__badge", children: active.length }), selection.count.toLocaleString(), " / ", cohortSize.toLocaleString()] }, selectionVersion), 
         /*
          * The chips are the filter's memory, so they live in the summary slot
@@ -61,7 +76,9 @@ export function FiltersPanel() {
                 const range = filters[key];
                 const inverted = filters.inverted[key] === true;
                 return (_jsxs("li", { className: "chip", "data-inverted": inverted, children: [_jsx("button", { type: "button", className: "chip__invert", title: inverted ? "Filtering outside this range" : "Filter outside this range", onClick: () => toggleInverted(key), children: inverted ? "◑" : "◐" }), _jsxs("span", { className: "chip__label", children: [SHORT[key], " ", inverted && "∉ ", range.min.toFixed(0), "\u2013", range.max.toFixed(0)] }), _jsx("button", { type: "button", className: "chip__remove", title: "Drop this filter", onClick: () => resetFilter(key), children: "\u2715" })] }, key));
-            }) })) : undefined, children: [_jsxs("div", { className: "filters__axis", children: [_jsx("button", { type: "button", className: "button", disabled: selection.count === 0, title: `Zoom the ${axis === "age" ? "age" : "calendar"} axis onto the patients in view`, onClick: fitXDomain, children: "Fit axis to selection" }), xDomainOverride !== null && (_jsx("button", { type: "button", className: "button button--tiny", title: "Back to the full dataset extent", onClick: resetXDomain, children: "\u21BA" }))] }), xDomainOverride !== null && (_jsxs("p", { className: "filters__axis-note", children: ["x axis: ", xDomainOverride[0].toFixed(1), " \u2013 ", xDomainOverride[1].toFixed(1)] })), _jsx(StackedLines, { width: CHART_WIDTH, height: STACKED_HEIGHT }), Object.keys(LABELS).map((key) => (_jsx(FilterControl, { name: key, label: LABELS[key], bounds: bounds[key], value: filters[key], inverted: filters.inverted[key] === true, distribution: distributions[key], onChange: (next) => setFilters({ [key]: next }), onInvert: () => toggleInverted(key), onReset: () => resetFilter(key) }, key)))] }));
+            }) })) : undefined, children: [_jsxs("div", { className: "filters__axis", children: [_jsx("button", { type: "button", className: "button", disabled: selection.count === 0, title: `Zoom the ${axis === "age" ? "age" : "calendar"} axis onto the patients in view`, onClick: fitXDomain, children: "Fit axis to selection" }), xDomainOverride !== null && (_jsx("button", { type: "button", className: "button button--tiny", title: "Back to the full dataset extent", onClick: resetXDomain, children: "\u21BA" }))] }), xDomainOverride !== null && (_jsxs("p", { className: "filters__axis-note", children: ["x axis: ", xDomainOverride[0].toFixed(1), " \u2013 ", xDomainOverride[1].toFixed(1)] })), _jsx(StackedLines, { width: CHART_WIDTH, height: STACKED_HEIGHT }), _jsxs("div", { className: "filters__source", role: "group", "aria-label": "Distribution curves", children: [_jsx("span", { children: "Curves" }), _jsx("button", { type: "button", className: "button button--tiny", "data-selected": !showSelection, title: "Every patient in the dataset", onClick: () => setCurveSource("dataset"), children: "Dataset" }), _jsx("button", { type: "button", className: "button button--tiny", "data-selected": showSelection, disabled: selectionDistributions === null, title: selectionDistributions === null
+                            ? "Select typologies to see their distributions"
+                            : "The selected typologies, each filter applied but its own", onClick: () => setCurveSource("selection"), children: "Selection" })] }), Object.keys(LABELS).map((key) => (_jsx(FilterControl, { name: key, label: LABELS[key], bounds: bounds[key], value: filters[key], inverted: filters.inverted[key] === true, distribution: curveData[key], onChange: (next) => setFilters({ [key]: next }), onInvert: () => toggleInverted(key), onReset: () => resetFilter(key) }, key)))] }));
 }
 function FilterControl({ name, label, bounds, value, inverted, distribution, onChange, onInvert, onReset, }) {
     /*
@@ -77,15 +94,16 @@ function FilterControl({ name, label, bounds, value, inverted, distribution, onC
     const [hoverX, setHoverX] = useState(null);
     const committed = value === null ? bounds : [value.min, value.max];
     const shown = preview ?? committed;
-    const curves = useMemo(() => {
-        if ("start" in distribution) {
-            return [
-                { distribution: distribution.start, className: "distribution--start", label: "starts" },
-                { distribution: distribution.end, className: "distribution--end", label: "ends" },
-            ];
-        }
-        return [{ distribution, className: "distribution--single", label: "count" }];
-    }, [distribution]);
+    const curves = useMemo(() => curvesOf(distribution), [distribution]);
     const isActive = value !== null;
     return (_jsxs("div", { className: "filter", "data-active": isActive, "data-inverted": inverted, children: [_jsxs("div", { className: "filter__head", children: [_jsx("label", { children: label }), _jsxs("span", { className: "filter__value", children: [shown[0].toFixed(1), " \u2013 ", shown[1].toFixed(1)] }), _jsx("button", { type: "button", className: "button button--tiny", "data-selected": inverted, title: "Keep what falls outside the range instead", onClick: onInvert, children: "\u25D0" }), _jsx("button", { type: "button", className: "button button--tiny", disabled: !isActive, title: "Reset this filter", onClick: onReset, children: "\u21BA" })] }), _jsx(FilterDistribution, { curves: curves, bounds: bounds, selection: shown, width: CHART_WIDTH, height: DISTRIBUTION_HEIGHT, inverted: inverted, hoverX: hoverX }), _jsx(RangeSlider, { bounds: bounds, value: value === null ? null : [value.min, value.max], width: CHART_WIDTH, inverted: inverted, onChange: (next) => onChange({ min: next[0], max: next[1] }), onPreview: setPreview, onHoverX: setHoverX }), curves.length > 1 && (_jsxs("p", { className: "filter__legend", children: [_jsx("span", { className: "distribution--start", children: "\u2014 starts" }), _jsx("span", { className: "distribution--end", children: "\u2014 ends" }), _jsx("em", { children: name === "age" ? "patient age span" : "patient calendar span" })] }))] }));
+}
+function curvesOf(distribution) {
+    if ("start" in distribution) {
+        return [
+            { distribution: distribution.start, className: "distribution--start", label: "starts" },
+            { distribution: distribution.end, className: "distribution--end", label: "ends" },
+        ];
+    }
+    return [{ distribution, className: "distribution--single", label: "count" }];
 }

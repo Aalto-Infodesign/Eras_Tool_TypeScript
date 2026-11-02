@@ -23,11 +23,13 @@ const REVEAL_MS = 260;
  * the rows of a chart pass those rather than making a second, possibly
  * different, copy.
  */
-export function StateDots({ states, labels, repeated, palette, hint, className, }) {
+export function StateDots({ states, labels, repeated, palette, hint, className, reveal = true, }) {
     const [open, setOpen] = useState(false);
     const timer = useRef(0);
     useEffect(() => () => window.clearTimeout(timer.current), []);
     return (_jsxs("span", { className: className === undefined ? "dots" : `dots ${className}`, onPointerEnter: () => {
+            if (!reveal)
+                return;
             window.clearTimeout(timer.current);
             timer.current = window.setTimeout(() => setOpen(true), REVEAL_MS);
         }, onPointerLeave: () => {

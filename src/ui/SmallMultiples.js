@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEras } from "../app/store.ts";
 import { clusterMembers, medoidPatients } from "../core/cluster/medoids.ts";
 import { TOP_CLUSTER_LIMIT } from "../core/cluster/types.ts";
@@ -10,6 +10,7 @@ import { SegmentIndex } from "../core/render/picking.ts";
 import { panelTypologies, repeatedSteps, sequenceLabels } from "../core/stats/silhouettes.ts";
 import { StateDots } from "./StateDots.tsx";
 import { createHoverSettler, HIGHLIGHT_OPACITY } from "./hover.ts";
+import { exportMemberships } from "./quickExport.ts";
 import { useAnimatedScalar } from "./useAnimatedView.ts";
 import { useClusterRun } from "./useClusterRun.ts";
 /**
@@ -99,6 +100,14 @@ const SPINE_WIDTH = 1.4;
 const SPINE_FOCUS_WIDTH = 2.6;
 const SPINE_DIMMED_OPACITY = 0.22;
 /**
+ * A typology's spines are drawn in one after another when its result lands
+ * during a run, biggest cluster first: this far apart, each fading in over
+ * `SPINE_DRAW_IN_MS`. Only final medoids are ever drawn — the stagger is in the
+ * showing, not in the clustering, which hands over a typology's medoids together.
+ */
+const SPINE_STAGGER_MS = 120;
+const SPINE_DRAW_IN_MS = 280;
+/**
  * How far the hairline layer recedes while a cluster is highlighted.
  *
  * A CSS opacity on the canvas element, not a repaint: the compositor already
@@ -118,6 +127,12 @@ const DIM_ELEMENT_OPACITY = 0.26;
  */
 const DETAILED_BUDGET = 4000;
 const COMPACT_BUDGET = 1200;
+/**
+ * How long the pointer rests on a compact card before the grid is labelled
+ * against it. Long enough that sweeping across the grid does not flash labels
+ * on every card it crosses, short enough to read as a response to the hover.
+ */
+const REFERENCE_DELAY_MS = 180;
 export function SmallMultiples({ width, opacity, xDomain, options, background, }) {
     const store = useEras((s) => s.store);
     const typologies = useEras((s) => s.typologies);
@@ -129,6 +144,7 @@ export function SmallMultiples({ width, opacity, xDomain, options, background, }
     const showSpines = useEras((s) => s.layers.medoids);
     const clusterRun = useClusterRun();
     const clusterVersion = useEras((s) => s.clusterVersion);
+    const clusterStatus = useEras((s) => s.clusterStatus);
     const hoveredCluster = useEras((s) => s.hoveredCluster);
     const setHoveredCluster = useEras((s) => s.setHoveredCluster);
     const rulesRef = useRef(null);
@@ -147,6 +163,20 @@ export function SmallMultiples({ width, opacity, xDomain, options, background, }
      * who it stands for is the question you have to hold still for.
      */
     const [pointedCluster, setPointedCluster] = useState(null);
+    /**
+     * The card the compact grid is labelled against: `hovered`, once the pointer
+     * has rested on it — see `ReferenceLabels`. Cleared at once on leaving, so
+     * labels never outlive the hover that asked for them.
+     */
+    const [reference, setReference] = useState(null);
+    useEffect(() => {
+        if (hovered === null) {
+            setReference(null);
+            return;
+        }
+        const timer = window.setTimeout(() => setReference(hovered), REFERENCE_DELAY_MS);
+        return () => window.clearTimeout(timer);
+    }, [hovered]);
     const palette = useMemo(() => buildPalette(store?.stateNames.length ?? 0), [store?.stateNames.length]);
     /*
      * Every geometry in this view is built against the panel's own steps, so the
@@ -252,6 +282,69 @@ export function SmallMultiples({ width, opacity, xDomain, options, background, }
      * Only the spines are hit-tested — picking one hairline out of a crowd names
      * a person nobody was aiming at, where picking a spine names a group.
      */
+    /**
+     * When each typology's spines started drawing in, in frame time.
+     *
+     * Read off the run's results map at every flush, so a key that is new since
+     * the last one has just landed. It is stamped `NaN` — waiting — and the first
+     * frame painted after that starts its draw-in: landing a result can cost a
+     * frame or two, and timed from the landing the reveal could be over before
+     * anything was painted. Results already there when the map is first seen —
+     * opening this view mid-run or after it — are stamped `-Infinity` and simply
+     * drawn; only what lands while the grid watches is drawn in. A new run is a
+     * new map, and starts empty.
+     *
+     * A ref: the paint reads it. Drawing in is a canvas repaint per frame, never
+     * a React render — re-rendering the grid every frame cost more than the
+     * drawing did.
+     */
+    const arrivals = useRef({
+        results: null,
+        at: new Map(),
+        pending: new Map(),
+        end: 0,
+    });
+    /** Bumped when something new is waiting to draw in, to start the frame loop. */
+    const [revealRequest, setRevealRequest] = useState(0);
+    useEffect(() => {
+        const results = clusterRun?.byTypology ?? null;
+        const book = arrivals.current;
+        if (results === null)
+            return;
+        const isFresh = book.results !== results;
+        if (isFresh) {
+            book.results = results;
+            book.at = new Map();
+            book.pending = new Map();
+        }
+        // Seen for the first time with results already in: those are history.
+        const live = clusterStatus === "running" && !(isFresh && results.size > 0);
+        const shown = new Set(panels.map((panel) => panel.typology.key));
+        let waiting = false;
+        for (const [key, result] of results) {
+            if (book.at.has(key))
+                continue;
+            // Off screen it has nothing to draw in, so it counts as already drawn.
+            const drawsIn = live && shown.has(key);
+            book.at.set(key, drawsIn ? Number.NaN : -Infinity);
+            if (drawsIn) {
+                book.pending.set(key, result.k);
+                waiting = true;
+            }
+        }
+        if (waiting)
+            setRevealRequest((count) => count + 1);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clusterRun, clusterVersion, clusterStatus, panels]);
+    /**
+     * A drawing-in panel's spines one by one, biggest cluster first — built on
+     * first need and kept until `spines` is rebuilt, which is exactly when the
+     * medoids, the mask or the geometry options change underneath them.
+     */
+    const spineParts = useRef({
+        spines: null,
+        byKey: new Map(),
+    });
     const spineIndex = useMemo(() => spines.map((geometry, i) => {
         const panel = panels[i];
         if (geometry === null || panel === undefined)
@@ -271,7 +364,10 @@ export function SmallMultiples({ width, opacity, xDomain, options, background, }
         const panel = panels.findIndex((candidate) => candidate.typology.key === ref.typologyKey);
         if (panel === -1)
             return null;
-        return { panel, geometry: buildGeometry(store, Uint32Array.of(ref.medoidPatient), panelOptions) };
+        return {
+            panel,
+            geometry: buildGeometry(store, Uint32Array.of(ref.medoidPatient), panelOptions),
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [store, showSpines, pointedCluster, clusterRun, clusterVersion, panels, panelOptions]);
     /** The members of the settled cluster, and which panel they belong under. */
@@ -465,11 +561,29 @@ export function SmallMultiples({ width, opacity, xDomain, options, background, }
     }, [panels, prepare, bandOf, lineOpacity, lineColors]);
     // Layer 3 — the summaries, and whatever is being pointed at. Cheap by
     // construction: a handful of spines per panel, and one cluster's members.
-    useEffect(() => {
+    // `clock` places the spines still drawing in; see `arrivals`.
+    const paintSpines = useCallback((clock) => {
         const dpr = window.devicePixelRatio || 1;
         const ctx = prepare(spinesRef.current, dpr);
         if (ctx === null)
             return;
+        const parts = spineParts.current;
+        if (parts.spines !== spines) {
+            parts.spines = spines;
+            parts.byKey = new Map();
+        }
+        const mask = selection?.mask ?? null;
+        const drawingIn = (key, result) => {
+            let geometries = parts.byKey.get(key);
+            if (geometries === undefined) {
+                const order = Array.from({ length: result.k }, (_, cluster) => cluster)
+                    .filter((cluster) => mask === null || mask[result.medoidPatient[cluster]] === 1)
+                    .sort((a, b) => result.sizes[b] - result.sizes[a]);
+                geometries = order.map((cluster) => buildGeometry(store, Uint32Array.of(result.medoidPatient[cluster]), panelOptions));
+                parts.byKey.set(key, geometries);
+            }
+            return geometries;
+        };
         panels.forEach((panel, index) => {
             const band = bandOf(index, panel, dpr);
             const colors = panel.steps.map((state) => palette.css[state] ?? "currentColor");
@@ -492,12 +606,36 @@ export function SmallMultiples({ width, opacity, xDomain, options, background, }
              * is what makes aiming at a spine feel direct while the field below it
              * still waits for the pointer to stop.
              */
-            paintGeometry(ctx, spines[index] ?? null, {
-                ...band,
-                opacity: focusSpine === null ? SPINE_OPACITY : SPINE_DIMMED_OPACITY,
-                lineWidth: SPINE_WIDTH * dpr,
-                rowColors: colors,
-            });
+            const spineOpacity = focusSpine === null ? SPINE_OPACITY : SPINE_DIMMED_OPACITY;
+            const result = clusterRun?.byTypology.get(panel.typology.key);
+            const arrived = arrivals.current.at.get(panel.typology.key) ?? -Infinity;
+            if (Number.isNaN(arrived)) {
+                // Landed, waiting for the frame that starts its draw-in.
+            }
+            else if (store !== null &&
+                result !== undefined &&
+                clock < arrived + result.k * SPINE_STAGGER_MS + SPINE_DRAW_IN_MS) {
+                // Just landed: each medoid in its turn, fading up to full strength.
+                drawingIn(panel.typology.key, result).forEach((geometry, i) => {
+                    const progress = (clock - arrived - i * SPINE_STAGGER_MS) / SPINE_DRAW_IN_MS;
+                    if (progress <= 0)
+                        return;
+                    paintGeometry(ctx, geometry, {
+                        ...band,
+                        opacity: spineOpacity * Math.min(1, progress),
+                        lineWidth: SPINE_WIDTH * dpr,
+                        rowColors: colors,
+                    });
+                });
+            }
+            else {
+                paintGeometry(ctx, spines[index] ?? null, {
+                    ...band,
+                    opacity: spineOpacity,
+                    lineWidth: SPINE_WIDTH * dpr,
+                    rowColors: colors,
+                });
+            }
             if (focusSpine !== null && focusSpine.panel === index) {
                 paintGeometry(ctx, focusSpine.geometry, {
                     ...band,
@@ -507,7 +645,41 @@ export function SmallMultiples({ width, opacity, xDomain, options, background, }
                 });
             }
         });
-    }, [panels, spines, lit, focus, focusSpine, prepare, bandOf, palette]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        panels,
+        spines,
+        lit,
+        focus,
+        focusSpine,
+        prepare,
+        bandOf,
+        palette,
+        clusterRun,
+        store,
+        selection,
+        panelOptions,
+    ]);
+    useEffect(() => paintSpines(performance.now()), [paintSpines]);
+    // While something is drawing in, the spine layer repaints every frame — that
+    // layer alone, straight from the frame callback. Restarted when a repaint
+    // dependency changes mid-way, so it carries on rather than stopping.
+    useEffect(() => {
+        const book = arrivals.current;
+        if (book.pending.size === 0 && book.end <= performance.now())
+            return;
+        let frame = requestAnimationFrame(function tick(time) {
+            for (const [key, count] of book.pending) {
+                book.at.set(key, time);
+                book.end = Math.max(book.end, time + count * SPINE_STAGGER_MS + SPINE_DRAW_IN_MS);
+            }
+            book.pending.clear();
+            paintSpines(time);
+            if (time < book.end)
+                frame = requestAnimationFrame(tick);
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [revealRequest, paintSpines]);
     // Settled rather than applied per move: see `createHoverSettler`.
     const settler = useMemo(() => createHoverSettler(setHoveredCluster), [setHoveredCluster]);
     useEffect(() => () => settler.cancel(), [settler]);
@@ -558,27 +730,80 @@ export function SmallMultiples({ width, opacity, xDomain, options, background, }
     return (_jsxs("div", { className: "multiples", children: [_jsxs("div", { className: "multiples__grid", style: { height }, children: [_jsx("canvas", { ref: rulesRef, className: "multiples__canvas", style: { width, height } }), _jsx("canvas", { ref: linesRef, className: "multiples__canvas multiples__canvas--lines", style: { width, height, opacity: dimmed ? DIM_ELEMENT_OPACITY : 1 } }), _jsx("canvas", { ref: spinesRef, className: "multiples__canvas", style: { width, height } }), panels.map((panel, index) => {
                         const rect = rectOf(index);
                         const onSpine = focusSpine?.panel === index;
-                        return (_jsx("button", { type: "button", className: "multiples__panel", "data-hovered": hovered === index, "data-spine": onSpine, style: {
-                                left: rect.left,
-                                top: rect.top,
-                                width: rect.width,
-                                height: rect.height,
-                            }, "aria-label": `${panel.typology.key} — open it alone, full size`, onPointerEnter: () => setHovered(index), onPointerMove: (event) => handleMove(index, event), onPointerLeave: () => handleLeave(index), onClick: (event) => {
-                                /*
-                                 * A spine under the cursor makes the click mean the cluster, not
-                                 * the panel — and it opens the typology *and* isolates it in one
-                                 * move, because isolating a cluster inside a grid of eight other
-                                 * panels would be a change you could not see.
-                                 */
-                                const cluster = clusterAt(index, event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
-                                if (cluster !== null)
-                                    focusCluster(panel.typology.key, cluster);
-                                else
-                                    selectTypologies([panel.typology.key]);
-                            }, children: _jsxs("span", { className: "multiples__foot", style: { height: FOOTER }, children: [_jsxs("span", { className: "multiples__key", children: [_jsx(StateDots, { states: panel.steps, labels: panel.labels, repeated: panel.repeated, palette: palette, hint: onSpine
-                                                    ? "click the spine to isolate that cluster"
-                                                    : "click to open this typology full size" }), _jsx("span", { className: "multiples__steps", children: isDetailed ? panel.typology.key : `${panel.steps.length} steps` })] }), _jsx("span", { className: "multiples__size", "data-sampled": panel.drawn < panel.size, title: panel.drawn < panel.size
-                                            ? `${panel.size.toLocaleString()} patients — every ${Math.round(panel.size / panel.drawn)}th drawn, which is as many as the panel can show`
-                                            : `${panel.size.toLocaleString()} patients`, children: panel.size.toLocaleString() })] }) }, panel.typology.key));
-                    })] }), hiddenCount > 0 && (_jsxs("p", { className: "multiples__more", children: ["+", hiddenCount.toLocaleString(), " more \u2014 a grid past ", MAX_PANELS, " panels is no more readable than the overlay it replaced."] }))] }));
+                        const clustered = clusterRun?.byTypology.has(panel.typology.key) === true;
+                        return (_jsxs(Fragment, { children: [_jsx("button", { type: "button", className: "multiples__panel", "data-hovered": hovered === index, "data-spine": onSpine, style: {
+                                        left: rect.left,
+                                        top: rect.top,
+                                        width: rect.width,
+                                        height: rect.height,
+                                    }, "aria-label": `${panel.typology.key} — open it alone, full size`, onPointerEnter: () => setHovered(index), onPointerMove: (event) => handleMove(index, event), onPointerLeave: () => handleLeave(index), onClick: (event) => {
+                                        /*
+                                         * A spine under the cursor makes the click mean the cluster, not
+                                         * the panel — and it opens the typology *and* isolates it in one
+                                         * move, because isolating a cluster inside a grid of eight other
+                                         * panels would be a change you could not see.
+                                         */
+                                        const cluster = clusterAt(index, event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
+                                        if (cluster !== null)
+                                            focusCluster(panel.typology.key, cluster);
+                                        else
+                                            selectTypologies([panel.typology.key]);
+                                    }, children: _jsxs("span", { className: "multiples__foot", style: { height: FOOTER }, children: [_jsxs("span", { className: "multiples__key", children: [_jsx(StateDots, { states: panel.steps, labels: panel.labels, repeated: panel.repeated, palette: palette, 
+                                                        // The compact grid names the hovered card's rules beside it.
+                                                        reveal: isDetailed, hint: onSpine
+                                                            ? "click the spine to isolate that cluster"
+                                                            : "click to open this typology full size" }), _jsx("span", { className: "multiples__steps", children: isDetailed ? panel.typology.key : `${panel.steps.length} steps` }), " "] }), _jsx("span", { className: "multiples__size", "data-sampled": panel.drawn < panel.size, title: panel.drawn < panel.size
+                                                    ? `${panel.size.toLocaleString()} patients — every ${Math.round(panel.size / panel.drawn)}th drawn, which is as many as the panel can show`
+                                                    : `${panel.size.toLocaleString()} patients`, children: panel.size.toLocaleString() })] }) }), _jsx("button", { type: "button", className: "button button--tiny multiples__export", "data-shown": hovered === index, style: { left: rect.left + rect.width, top: rect.top + rect.height }, disabled: !clustered, title: clustered
+                                        ? "Export this typology's cluster memberships (TSV)"
+                                        : "Not clustered yet — nothing to export", "aria-label": `Export the memberships of ${panel.typology.key}`, onPointerEnter: () => setHovered(index), onPointerLeave: () => setHovered((current) => (current === index ? null : current)), onClick: () => exportMemberships(panel.typology.key), children: "\u2913 TSV" })] }, panel.typology.key));
+                    }), labelWidth === 0 && reference !== null && panels[reference] !== undefined && (_jsx(ReferenceLabels, { panels: panels, reference: reference, rectOf: rectOf, rowPitch: rowPitch, palette: palette.css }))] }), hiddenCount > 0 && (_jsxs("p", { className: "multiples__more", children: ["+", hiddenCount.toLocaleString(), " more \u2014 a grid past ", MAX_PANELS, " panels is no more readable than the overlay it replaced."] }))] }));
+}
+/** Where a rule sits in its card, in CSS pixels from the card's top. */
+const ruleY = (row, rowPitch) => PANEL_TOP + (row + 0.5) * rowPitch;
+/**
+ * The compact grid's state names, relative to the card under the pointer.
+ *
+ * A compact card has no room to name its rules, so the colours had to be looked
+ * up — in the States panel, or by resting on the dots. Here the hovered card's
+ * names stand beside it, one on each rule, and every *other* card names only
+ * the rules where it differs from the hovered one, step for step. A rule left
+ * unlabelled is the same state as the hovered card's at that step, so one
+ * legend reads the whole grid, and what is labelled is exactly what changed.
+ *
+ * The legend goes on the card's left, over the neighbour's edge, where the eye
+ * starts reading a rule; a first-column card has no left, so it goes right.
+ * The others' labels keep off the lines: every trajectory descends left to
+ * right, so a top rule's segments sit at its left end and a bottom rule's at its
+ * right — each label takes the far end of its rule. The neighbour the legend
+ * lies over is the exception: its labels take the end the legend leaves clear.
+ */
+function ReferenceLabels({ panels, reference, rectOf, rowPitch, palette, }) {
+    const hovered = panels[reference];
+    const anchor = rectOf(reference);
+    const onLeft = anchor.left > 0;
+    // Same grid row either way: a card with something on its left is not first
+    // in its row, and a first-column card has a neighbour on its right.
+    const covered = onLeft ? reference - 1 : reference + 1;
+    return (_jsxs("div", { className: "multiples__labels", "aria-hidden": "true", children: [hovered.steps.map((state, row) => (_jsx("span", { className: "multiples__label multiples__label--reference", style: {
+                    top: anchor.top + ruleY(row, rowPitch),
+                    left: onLeft ? anchor.left - 6 : anchor.left + anchor.width + 6,
+                    transform: onLeft ? "translate(-100%, -50%)" : "translateY(-50%)",
+                    color: palette[state],
+                }, children: hovered.labels[row] }, `reference-${row}`))), panels.map((panel, index) => {
+                if (index === reference)
+                    return null;
+                const rect = rectOf(index);
+                return panel.steps.map((state, row) => {
+                    if (hovered.steps[row] === state)
+                        return null;
+                    const atEnd = index === covered ? !onLeft : row < panel.steps.length / 2;
+                    return (_jsxs("span", { className: "multiples__label", style: {
+                            top: rect.top + ruleY(row, rowPitch),
+                            left: atEnd ? rect.left + rect.width - 4 : rect.left + 4,
+                            transform: atEnd ? "translate(-100%, -50%)" : "translateY(-50%)",
+                            color: palette[state],
+                        }, children: ["\u2260", panel.labels[row]] }, `${panel.typology.key}-${row}`));
+                });
+            })] }));
 }

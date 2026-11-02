@@ -2,18 +2,22 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useMemo } from "react";
 import { isAvailable, useSidePanels } from "../app/sidePanels.ts";
 import { ClusterTable } from "./ClusterTable.tsx";
+import { DataPanel } from "./FileLoader.tsx";
 import { FiltersPanel } from "./FiltersPanel.tsx";
 import { PanelSlotContext } from "./Panel.tsx";
 import { PathExplorer } from "./PathExplorer.tsx";
+import { PipelinePanel } from "./PipelinePanel.tsx";
 import { PerfHud } from "./PerfHud.tsx";
 import { StatesPanel } from "./StatesPanel.tsx";
 import { TypologyList } from "./TypologyList.tsx";
 import { useViewKeys, ViewSwitcher } from "./ViewSwitcher.tsx";
 const COMPONENTS = {
+    data: DataPanel,
     view: ViewSwitcher,
     ingest: PerfHud,
     states: StatesPanel,
     filters: FiltersPanel,
+    pipeline: PipelinePanel,
     clusters: ClusterTable,
     paths: PathExplorer,
     typologies: TypologyList,

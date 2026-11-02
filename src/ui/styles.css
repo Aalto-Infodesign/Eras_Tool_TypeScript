@@ -180,6 +180,9 @@ body {
   padding: 28px 36px;
   border: 1px dashed var(--line);
   border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  place-items: center;
 }
 
 /* ---------- loader ---------- */
@@ -284,7 +287,7 @@ body {
   cursor: default;
 }
 .button--primary {
-  background: var(--accent);
+  background: var(--text);
   color: var(--on-accent);
   border-color: transparent;
   font-weight: 600;
@@ -460,7 +463,7 @@ body {
 .panel__body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
   padding: 0 10px 10px;
   min-width: 0;
 }
@@ -3053,4 +3056,31 @@ body {
   from {
     opacity: 0;
   }
+}
+
+/* ---------- quick exports on the charts ---------- */
+
+.viewswitch__export {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 6px;
+}
+/* Pinned by its bottom-right corner to the card's, inside it. */
+.multiples__export {
+  position: absolute;
+  transform: translate(calc(-100% - 4px), calc(-100% - 4px));
+  /* Hidden until the card is wanted, as on the silhouette cards. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+.multiples__export[data-shown="true"],
+.multiples__export:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.multiples__export[data-shown="true"][aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

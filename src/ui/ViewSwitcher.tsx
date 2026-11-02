@@ -6,6 +6,7 @@ import { layoutSankey } from "../core/render/sankeyLayout.ts"
 import { repeatedSteps, sequenceLabels } from "../core/stats/silhouettes.ts"
 import { MiniTrajectories } from "./MiniTrajectories.tsx"
 import { Panel } from "./Panel.tsx"
+import { exportSelection, exportSelectionIds } from "./quickExport.ts"
 import { SankeyBase } from "./SankeyGraphic.tsx"
 import { StateDots } from "./StateDots.tsx"
 import { useSankey, type SankeyData } from "./useSankey.ts"
@@ -78,6 +79,25 @@ export function ViewSwitcher(): React.JSX.Element | null {
       ) : (
         <SankeyMiniButton onSwap={() => setView(other)} />
       )}
+      {/* The selection as a file, without a trip to "Build & export". */}
+      <div className="viewswitch__export">
+        <button
+          type="button"
+          className="button button--tiny"
+          title="Just the ids of every individual in the selection, one per line"
+          onClick={exportSelectionIds}
+        >
+          ⤓ Export Ids
+        </button>
+        <button
+          type="button"
+          className="button button--primary button--tiny"
+          title="One row per typology in the selection, its clusters and their members as JSON"
+          onClick={exportSelection}
+        >
+          ⤓ Export Selection
+        </button>
+      </div>
     </Panel>
   )
 }

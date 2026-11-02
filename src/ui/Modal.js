@@ -16,7 +16,7 @@ import { useEffect, useRef } from "react";
  * Children mount only while open. The path explorer builds a trie and paints a
  * canvas; neither should happen for a dialog nobody has opened.
  */
-export function Modal({ open, title, onClose, toolbar, className, children, }) {
+export function Modal({ open, title, onClose, toolbar, className, closeLabel = "Close", closePrimary = false, children, }) {
     const ref = useRef(null);
     useEffect(() => {
         const dialog = ref.current;
@@ -33,5 +33,5 @@ export function Modal({ open, title, onClose, toolbar, className, children, }) {
         onClick: (event) => {
             if (event.target === event.currentTarget)
                 onClose();
-        }, onClose: onClose, children: [_jsxs("div", { className: "modal__head", children: [_jsx("h2", { children: title }), toolbar, _jsx("button", { type: "button", className: "button", onClick: onClose, children: "Close" })] }), open && _jsx("div", { className: "modal__body", children: children })] }));
+        }, onClose: onClose, children: [_jsxs("div", { className: "modal__head", children: [_jsx("h2", { children: title }), toolbar, _jsx("button", { type: "button", className: `button ${closePrimary ? "button--primary" : ""}`, onClick: onClose, children: closeLabel })] }), open && _jsx("div", { className: "modal__body", children: children })] }));
 }

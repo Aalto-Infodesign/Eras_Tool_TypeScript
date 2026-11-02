@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyHistory, HISTORY_LIMIT, pushHistory, redo, sameSnapshot, snapshotOf, undo, } from "../query/history.ts";
-const snap = (selectedTypologies, pathPrefix = [], selectedClusters = []) => ({ selectedTypologies, pathPrefix, selectedClusters });
+const snap = (selectedTypologies, pathSteps = [], selectedClusters = [], activeExpectations = []) => ({ selectedTypologies, pathSteps, activeExpectations, selectedClusters });
 describe("selection history", () => {
     it("records where the selection came from", () => {
         const history = pushHistory(emptyHistory, snap([]), snap(["a-b"]));
@@ -14,9 +14,13 @@ describe("selection history", () => {
         expect(pushHistory(history, snap(["a", "b"]), snap(["b", "a"]))).toBe(history);
     });
     it("treats a different path as a change even over the same typologies", () => {
-        // [a, b] and [b, a] are different paths through the tree.
+        // a → b and b → a are different paths through the tree.
         const history = pushHistory(emptyHistory, snap(["x"], [0, 1]), snap(["x"], [1, 0]));
         expect(history.past).toHaveLength(1);
+        expect(sameSnapshot(snap([], [0, 1]), snap([], [0]))).toBe(false);
+        // Switched-on expectations are a set.
+        expect(sameSnapshot(snap([], [], [], [1, 2]), snap([], [], [], [2, 1]))).toBe(true);
+        expect(sameSnapshot(snap([], [], [], [1]), snap([], [], [], []))).toBe(false);
         expect(sameSnapshot(snap([], [], [1, 2]), snap([], [], [2, 1]))).toBe(true);
         expect(sameSnapshot(snap([], [], [1]), snap([], [], [1, 2]))).toBe(false);
     });
@@ -57,7 +61,7 @@ describe("selection history", () => {
         expect(redo(emptyHistory, snap([]))).toBeNull();
     });
     it("takes only the selection fields from a wider state", () => {
-        const state = { ...snap(["a"], [1], [2]), view: "sankey", opacity: 0.5 };
-        expect(snapshotOf(state)).toEqual(snap(["a"], [1], [2]));
+        const state = { ...snap(["a"], [1], [2], [3]), view: "sankey", opacity: 0.5 };
+        expect(snapshotOf(state)).toEqual(snap(["a"], [1], [2], [3]));
     });
 });

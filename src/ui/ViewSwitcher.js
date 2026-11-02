@@ -6,6 +6,7 @@ import { layoutSankey } from "../core/render/sankeyLayout.ts";
 import { repeatedSteps, sequenceLabels } from "../core/stats/silhouettes.ts";
 import { MiniTrajectories } from "./MiniTrajectories.tsx";
 import { Panel } from "./Panel.tsx";
+import { exportSelection } from "./quickExport.ts";
 import { SankeyBase } from "./SankeyGraphic.tsx";
 import { StateDots } from "./StateDots.tsx";
 import { useSankey } from "./useSankey.ts";
@@ -46,8 +47,9 @@ function isEditable(target) {
  * The thumbnail is the switch. It is one button — nothing inside it takes focus
  * or the pointer — and it shows what clicking would actually open: the Sankey
  * of the current selection, or the grid's first panels (the one typology, when
- * one is chosen). The ControlBar carries the same choice as text, and 1 / 2
- * work from anywhere, as they did in the original.
+ * one is chosen). It is the only on-screen switch — the chart controls no
+ * longer carry one, which is why the column will not hide this panel — and
+ * 1 / 2 work from anywhere, as they did in the original.
  */
 export function ViewSwitcher() {
     const hasData = useEras((s) => s.store !== null);
@@ -56,7 +58,7 @@ export function ViewSwitcher() {
     if (!hasData)
         return null;
     const other = view === "sankey" ? "trajectories" : "sankey";
-    return (_jsx(Panel, { title: "View", count: NAMES[view], defaultOpen: true, className: "panel--view", children: other === "trajectories" ? (_jsx(MiniButton, { view: other, label: "Switch to the Trajectories view \u2014 key 2", picture: _jsx(MiniTrajectories, {}), caption: _jsx(TrajectoriesCaption, {}), onSwap: () => setView(other) })) : (_jsx(SankeyMiniButton, { onSwap: () => setView(other) })) }));
+    return (_jsxs(Panel, { title: "View", count: NAMES[view], defaultOpen: true, className: "panel--view", children: [other === "trajectories" ? (_jsx(MiniButton, { view: other, label: "Switch to the Trajectories view \u2014 key 2", picture: _jsx(MiniTrajectories, {}), caption: _jsx(TrajectoriesCaption, {}), onSwap: () => setView(other) })) : (_jsx(SankeyMiniButton, { onSwap: () => setView(other) })), _jsx("button", { type: "button", className: "button button--tiny viewswitch__export", title: "Export the ids of every individual in the current selection", onClick: exportSelection, children: "\u2913 Export selection" })] }));
 }
 /**
  * Keys 1 and 2 swap the main view.

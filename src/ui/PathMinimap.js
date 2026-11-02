@@ -8,7 +8,7 @@ const OFF = 0;
 const REACHABLE = 1;
 const ON_PATH = 2;
 /**
- * The whole tree at a glance, in the chart's colours, with the chosen path lit.
+ * The whole tree at a glance, in the chart's colours, with the chosen paths lit.
  *
  * Canvas rather than SVG: a real dataset's tree runs to a few thousand nodes and
  * this is a texture, not a set of controls — nothing in it is clicked or
@@ -26,7 +26,7 @@ const ON_PATH = 2;
  * children. That is enough to make the shape of the cohort legible — a wide fan
  * where paths diverge, a long thin spine where everyone does the same thing.
  */
-export function PathMinimap({ tree, current, width, height, palette }) {
+export function PathMinimap({ tree, frontier, width, height, palette }) {
     const canvasRef = useRef(null);
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -48,20 +48,24 @@ export function PathMinimap({ tree, current, width, height, palette }) {
         const slots = Math.max(1, layout.leaves);
         const px = (depth) => PADDING + (depth / maxDepth) * usableX;
         const py = (slot) => PADDING + ((slot + 0.5) / slots) * usableY;
-        // Rank every node once: the route taken (ancestors of `current`, plus it),
-        // then everything still reachable below it, then the rest.
+        // Rank every node once: the routes taken (ancestors of the frontier, plus
+        // it), then everything still reachable below it, then the rest. A step's
+        // picked state that leads nowhere the next step allows is not on a route.
         const rank = new Uint8Array(nodes.length);
-        const stack = [current];
+        const stack = [...frontier];
         while (stack.length > 0) {
             const id = stack.pop();
             rank[id] = REACHABLE;
             for (const child of nodes[id].children)
                 stack.push(child);
         }
-        let walk = current;
-        while (walk >= 0) {
-            rank[walk] = ON_PATH;
-            walk = nodes[walk].parent;
+        for (const id of frontier) {
+            let walk = id;
+            // Routes share their ancestors; stop at the first one already lit.
+            while (walk >= 0 && rank[walk] !== ON_PATH) {
+                rank[walk] = ON_PATH;
+                walk = nodes[walk].parent;
+            }
         }
         /*
          * Batched by colour, not drawn per edge. There are a handful of states and a
@@ -115,19 +119,19 @@ export function PathMinimap({ tree, current, width, height, palette }) {
                 ctx.fill(path);
             }
         }
-        // Where you are standing: a ring, so it reads as a position rather than as
-        // one more node of the path it ends.
-        const node = nodes[current];
-        const x = px(node.depth);
-        const y = py(layout.slot[current]);
+        // Where you are standing: a ring on each route's end, so they read as
+        // positions rather than as one more node of the paths they end.
         ctx.globalAlpha = 1;
-        ctx.beginPath();
-        ctx.arc(x, y, 5.5, 0, Math.PI * 2);
-        ctx.strokeStyle = current === 0 ? ELSEWHERE : palette[node.state] ?? ELSEWHERE;
         ctx.lineWidth = 1.5;
-        ctx.stroke();
-    }, [tree, current, width, height, palette]);
-    return (_jsx("canvas", { ref: canvasRef, className: "pathmap", style: { width, height }, role: "img", "aria-label": "Map of every path, with the chosen one highlighted" }));
+        for (const id of frontier) {
+            const node = nodes[id];
+            ctx.beginPath();
+            ctx.arc(px(node.depth), py(layout.slot[id]), 5.5, 0, Math.PI * 2);
+            ctx.strokeStyle = id === 0 ? ELSEWHERE : palette[node.state] ?? ELSEWHERE;
+            ctx.stroke();
+        }
+    }, [tree, frontier, width, height, palette]);
+    return (_jsx("canvas", { ref: canvasRef, className: "pathmap", style: { width, height }, role: "img", "aria-label": "Map of every path, with the chosen ones highlighted" }));
 }
 /**
  * Leaves get consecutive slots in depth-first order; a parent sits at the mean

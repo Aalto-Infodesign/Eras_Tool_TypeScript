@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { clusterMemberIds, clusterSummaryTsv, membershipsTsv } from "../cluster/export.ts"
+import {
+  clusterMemberIds,
+  clusterSummaryTsv,
+  membershipsTsv,
+  typologyClustersTsv,
+} from "../cluster/export.ts"
 import { buildDurationMatrices, buildDurationMatrix } from "../cluster/matrices.ts"
 import { singleCluster, TypologyClusterer } from "../cluster/meanshift.ts"
 import { NeighborIndex } from "../cluster/NeighborIndex.ts"
@@ -372,6 +377,40 @@ describe("exports", () => {
     const header = lines[2]!.split("\t")
     expect(header).toHaveLength(2 + result.k)
     expect(lines).toHaveLength(3 + result.n)
+  })
+
+  it("packs each typology's clusters into one JSON cell, narrowed to the selection", () => {
+    const { store, results } = clusterAll(twoSpeedRecords(40, 25))
+    const typologies = buildTypologies(store)
+    const byTypology = new Map(results.map((r) => [r.typologyKey, r]))
+    const parse = (chunks: string[]) =>
+      chunks.slice(2).map((line) => {
+        const [id, states, n, k, cell] = line.trimEnd().split("\t")
+        return { id, states, n: Number(n), k: Number(k), clusters: JSON.parse(cell!) }
+      })
+
+    const [all] = parse(typologyClustersTsv(typologies, byTypology, () => true, store.ids))
+    expect(all!.id).toBe("T1")
+    expect(all!.states).toBe(typologies[0]!.key)
+    expect(all!.n).toBe(65)
+    expect(all!.k).toBe(results[0]!.k)
+    const members = all!.clusters.flatMap((c: { members: [string, number][] }) => c.members)
+    expect(members).toHaveLength(65)
+    expect(members.every(([, w]: [string, number]) => w > 0 && w <= 1)).toBe(true)
+
+    // Only the even patients: every cluster shrinks, and the count follows.
+    const [half] = parse(typologyClustersTsv(typologies, byTypology, (p) => p % 2 === 0, store.ids))
+    expect(half!.n).toBe(33)
+
+    // Not clustered: one cluster, no medoid, no weights.
+    const [bare] = parse(typologyClustersTsv(typologies, null, () => true, store.ids))
+    expect(bare!.k).toBe(0)
+    expect(bare!.clusters).toHaveLength(1)
+    expect(bare!.clusters[0].medoid).toBeNull()
+    expect(bare!.clusters[0].members[0][1]).toBeNull()
+
+    // Nobody left: no row at all.
+    expect(typologyClustersTsv(typologies, byTypology, () => false, store.ids)).toHaveLength(2)
   })
 
   it("writes one summary row per cluster", () => {

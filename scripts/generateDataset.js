@@ -7,6 +7,12 @@
  *
  *   npm run gen:data -- --patients 250000 --out public/data/generated/data_250k.json
  *   npm run gen:data -- --patients 250000 --format tsv
+ *   npm run gen:data -- --patients 1000000 --states 3 --min 2 --max 5 --distinct \
+ *     --out public/data/generated/data_1m.json
+ *
+ * `--distinct` never repeats the previous state. With a handful of states the
+ * walk otherwise runs off the end and sticks there — at three states, most
+ * sequences came out as the last state over and over.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -23,6 +29,7 @@ function parseArgs(argv) {
         states: Number(get("states") ?? 8),
         minLength: Number(get("min") ?? 3),
         maxLength: Number(get("max") ?? 8),
+        distinct: argv.includes("--distinct"),
         format,
         out: get("out") ?? `public/data/generated/data_${label}.${format}`,
     };
@@ -65,6 +72,7 @@ function main() {
         // than a handful of identical sequences.
         const trajectory = [];
         let cursor = 0;
+        let previous = -1;
         for (let k = 0; k < length; k++) {
             if (random() < 0.15 && cursor > 0)
                 cursor -= 1;
@@ -72,7 +80,15 @@ function main() {
                 cursor += 2;
             else
                 cursor += 1;
-            trajectory.push(states[Math.min(cursor, states.length - 1)]);
+            let index = Math.min(cursor, states.length - 1);
+            // Landed on the state it is already in — clamped at the end, usually:
+            // switch to any other one instead, and carry on the walk from there.
+            if (options.distinct && index === previous && states.length > 1) {
+                index = (index + 1 + Math.floor(random() * (states.length - 1))) % states.length;
+                cursor = index;
+            }
+            previous = index;
+            trajectory.push(states[index]);
         }
         let age = 18 + random() * 30;
         const birthYear = 1935 + Math.floor(random() * 50);

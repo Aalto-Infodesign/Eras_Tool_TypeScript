@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildStore } from "../model/build.ts";
 import { spliceStates } from "../model/reshape.ts";
-import { applyFilters, emptyFilters } from "../query/filters.ts";
+import { applyFilters, emptyFilters, FAILS, filterFailures, UNSELECTED } from "../query/filters.ts";
 import { buildDistributions } from "../stats/distributions.ts";
 /** `n` patients whose calendar span starts at 2000+i and ends ten years later. */
 function cohort(n) {
@@ -101,5 +101,51 @@ describe("inverting a filter", () => {
         expect(applyFilters(store, matching).count).toBe(10);
         const inverted = { ...matching, inverted: { duration: true } };
         expect(applyFilters(store, inverted).count).toBe(0);
+    });
+});
+describe("selection distributions", () => {
+    it("records every range a patient fails, not just the first", () => {
+        const store = buildStore(cohort(10)); // disease 10..19, years 2000+i..2010+i
+        const filters = {
+            ...emptyFilters,
+            diseaseDuration: { min: 10, max: 14 },
+            year: { min: 2000, max: 2012 },
+        };
+        const failures = filterFailures(store, filters, new Uint8Array(store.patientCount));
+        expect(failures[0]).toBe(0);
+        expect(failures[3]).toBe(FAILS.year); // disease 13 passes; span ends 2013
+        expect(failures[7]).toBe(FAILS.diseaseDuration | FAILS.year);
+        // Exactly the patients the mask keeps fail nothing.
+        const mask = applyFilters(store, filters);
+        for (let p = 0; p < store.patientCount; p++) {
+            expect(failures[p] === 0).toBe(mask.has(p));
+        }
+    });
+    it("lifts only each filter's own range from its histogram", () => {
+        const store = buildStore(cohort(10));
+        const filters = {
+            ...emptyFilters,
+            diseaseDuration: { min: 10, max: 14 }, // keeps patients 0..4
+            year: { min: 2000, max: 2012 }, // keeps patients 0..2
+        };
+        const failures = filterFailures(store, filters, new Uint8Array(store.patientCount));
+        const subset = buildDistributions(store, failures);
+        // Disease duration ignores its own cut but not the year's.
+        expect(total(subset.diseaseDuration.counts)).toBe(3);
+        // Year ignores its own cut but not disease duration's.
+        expect(total(subset.year.start.counts)).toBe(5);
+        // Unfiltered dimensions see everyone both cuts keep.
+        expect(total(subset.age.start.counts)).toBe(3);
+        expect(total(subset.duration.counts)).toBe(3);
+    });
+    it("narrows every curve to the chosen patients", () => {
+        const store = buildStore(cohort(10));
+        const failures = filterFailures(store, emptyFilters, new Uint8Array(store.patientCount));
+        for (let p = 4; p < 10; p++)
+            failures[p] = failures[p] | UNSELECTED;
+        const subset = buildDistributions(store, failures);
+        expect(total(subset.diseaseDuration.counts)).toBe(4);
+        expect(total(subset.year.end.counts)).toBe(4);
+        expect(total(subset.duration.counts)).toBe(4);
     });
 });

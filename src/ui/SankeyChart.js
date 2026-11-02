@@ -5,6 +5,7 @@ import { layoutSankey, stickyOrder, } from "../core/render/sankeyLayout.ts";
 import { itemKey, linkSegmentsInRange, parsePinKey, pinKey, pinOf, resolvePin, samePin, sankeyMetricValues, stepMetricValues, summarise, traceSankey, typologiesThrough, typologyOfPatient, } from "../core/stats/sankey.ts";
 import { SankeyDistribution } from "./SankeyDistribution.tsx";
 import { collapsedBand, collapsedBox, graphKeys, labelGutter, SankeyBase, SankeyLabels, SankeyOverlay, } from "./SankeyGraphic.tsx";
+import { ChartControls } from "./ChartControls.tsx";
 import { createHoverSettler } from "./hover.ts";
 import { DURATION_MS, ease } from "./useAnimatedView.ts";
 import { useElementSize } from "./useRenderer.ts";
@@ -799,7 +800,8 @@ function SankeyDetail({ graph, typologies, palette, stateNames, pin, pinned, com
     const selectTypologies = useEras((s) => s.selectTypologies);
     const selectPath = useEras((s) => s.selectPath);
     const selectedTypologies = useEras((s) => s.selectedTypologies);
-    const pathPrefix = useEras((s) => s.pathPrefix);
+    const pathSteps = useEras((s) => s.pathSteps);
+    const activeExpectations = useEras((s) => s.activeExpectations);
     const drillDown = useEras((s) => s.drillDown);
     const duration = useEras((s) => s.filters.duration);
     const durationInverted = useEras((s) => s.filters.inverted.duration === true);
@@ -874,13 +876,17 @@ function SankeyDetail({ graph, typologies, palette, stateNames, pin, pinned, com
          * typology under the prefix, not just the ones on screen: with a hand-picked
          * selection already narrowing the Sankey, it would bring back typologies the
          * reader had left out, and "show only" would show more. The prefix is safe
-         * from the whole cohort, or from a path it extends.
+         * from the whole cohort, or from a path selection it falls inside.
          */
         if (pin.step === 0 && (pin.kind === "link" || scope === "all")) {
             const path = pin.kind === "link" ? [pin.source, pin.target] : [pin.state];
-            const extendsCurrent = pathPrefix.length > 0 &&
-                pathPrefix.length <= path.length &&
-                pathPrefix.every((state, i) => path[i] === state);
+            // Inside the current selection when the walk is a prefix of this path.
+            // Not with expectations switched on: the walk would merge with them, and
+            // "show only" would show them too.
+            const extendsCurrent = activeExpectations.length === 0 &&
+                pathSteps.length > 0 &&
+                pathSteps.length <= path.length &&
+                pathSteps.every((state, i) => state === path[i]);
             if (selectedTypologies.length === 0 || extendsCurrent) {
                 selectPath(path);
                 return;
@@ -948,5 +954,5 @@ function SankeyStats({ graph, sizes, buildMs, }) {
                 n += 1;
         return n;
     }, [sizes]);
-    return (_jsxs("div", { className: "chart__stats sankey__stats", children: [_jsxs("span", { children: [_jsx("b", { children: (selection?.count ?? 0).toLocaleString() }), " / ", cohortSize.toLocaleString(), " patients"] }, selectionVersion), _jsxs("span", { children: [_jsx("b", { children: liveTypologies.toLocaleString() }), " typologies"] }), _jsxs("span", { children: [_jsx("b", { children: graph.steps }), " steps"] }), _jsxs("span", { children: [_jsx("b", { children: graph.links.length.toLocaleString() }), " flows"] }), _jsxs("span", { children: ["built ", _jsxs("b", { children: [buildMs.toFixed(1), "ms"] })] }), selectedTypologies.length > 0 && (_jsxs("button", { type: "button", className: "chart__stats-isolated", title: "Show every typology again", onClick: clearTypologies, children: [count(selectedTypologies.length), " of ", count(typologyTotal), " typologies \u2715"] })), _jsxs("span", { className: "sankey__history", children: [_jsx("button", { type: "button", className: "button button--tiny", disabled: cannotUndo, title: "Undo the last selection change \u00B7 \u2318Z / Ctrl+Z", "aria-label": "Undo selection", onClick: undoSelection, children: "\u21B6" }), _jsx("button", { type: "button", className: "button button--tiny", disabled: cannotRedo, title: "Redo \u00B7 \u21E7\u2318Z / Ctrl+Shift+Z", "aria-label": "Redo selection", onClick: redoSelection, children: "\u21B7" })] })] }));
+    return (_jsxs("div", { className: "chart__stats sankey__stats", children: [_jsxs("span", { children: [_jsx("b", { children: (selection?.count ?? 0).toLocaleString() }), " / ", cohortSize.toLocaleString(), " patients"] }, selectionVersion), _jsxs("span", { children: [_jsx("b", { children: liveTypologies.toLocaleString() }), " typologies"] }), _jsxs("span", { children: [_jsx("b", { children: graph.steps }), " steps"] }), _jsxs("span", { children: [_jsx("b", { children: graph.links.length.toLocaleString() }), " flows"] }), _jsxs("span", { children: ["built ", _jsxs("b", { children: [buildMs.toFixed(1), "ms"] })] }), selectedTypologies.length > 0 && (_jsxs("button", { type: "button", className: "chart__stats-isolated", title: "Show every typology again", onClick: clearTypologies, children: [count(selectedTypologies.length), " of ", count(typologyTotal), " typologies \u2715"] })), _jsxs("span", { className: "sankey__history", children: [_jsx("button", { type: "button", className: "button button--tiny", disabled: cannotUndo, title: "Undo the last selection change \u00B7 \u2318Z / Ctrl+Z", "aria-label": "Undo selection", onClick: undoSelection, children: "\u21B6" }), _jsx("button", { type: "button", className: "button button--tiny", disabled: cannotRedo, title: "Redo \u00B7 \u21E7\u2318Z / Ctrl+Shift+Z", "aria-label": "Redo selection", onClick: redoSelection, children: "\u21B7" })] }), _jsx(ChartControls, {})] }));
 }

@@ -3,6 +3,7 @@ import { chartModeOf, focusedTypologyOf, useEras } from "../app/store.ts";
 import { clusterMembers, medoidPatients } from "../core/cluster/medoids.ts";
 import { TOP_CLUSTER_LIMIT } from "../core/cluster/types.ts";
 import { xDomainOf } from "../core/query/extent.ts";
+import { scopeClusters } from "../core/query/pipeline.ts";
 import { sequenceLabels } from "../core/stats/silhouettes.ts";
 import { buildStateStats, buildStepStats } from "../core/render/boxplots.ts";
 import { buildGeometry, rowLookup, } from "../core/render/geometry.ts";
@@ -106,12 +107,9 @@ export function useChartLayers() {
      * to the focused typology and to the chosen clusters, and when those two
      * disagree it returns nothing and the spines simply never appear.
      */
-    const scopedClusters = useMemo(() => {
-        if (focusedKey === null || clusterRun === null)
-            return selectedClusters;
-        return selectedClusters.filter((index) => clusterRun.clusters[index]?.typologyKey === focusedKey);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [focusedKey, clusterRun, clusterVersion, selectedClusters]);
+    const scopedClusters = useMemo(() => scopeClusters(clusterRun, selectedClusters, focusedKey), 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [focusedKey, clusterRun, clusterVersion, selectedClusters]);
     /**
      * The cluster representatives, in medoid mode.
      *

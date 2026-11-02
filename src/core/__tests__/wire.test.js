@@ -59,7 +59,7 @@ describe("the worker boundary", () => {
             population: new Selection(store.patientCount),
             filters: emptyFilters,
             selectedTypologies: [],
-            pathPrefix: [],
+            pathSteps: [],
         });
         const target = typologies[0];
         useEras.getState().toggleTypology(target.key);
@@ -105,7 +105,7 @@ describe("the clustering boundary", () => {
             population: new Selection(store.patientCount),
             filters: emptyFilters,
             selectedTypologies: [],
-            pathPrefix: [],
+            pathSteps: [],
         });
         const matrices = buildDurationMatrices(store, typologies);
         structuredClone({ matrices }, { transfer: matrices.flatMap(matrixTransferables) });

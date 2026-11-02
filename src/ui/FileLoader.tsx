@@ -53,6 +53,7 @@ export function FileLoader({
 
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setDragging] = useState(false)
+  const [isSample, setSample] = useState(false)
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
@@ -75,14 +76,16 @@ export function FileLoader({
       onDrop={onDrop}
     >
       <div className="loader__row">
-        <button
-          type="button"
-          className="button button--primary button--tiny"
-          onClick={() => inputRef.current?.click()}
-          disabled={status === "loading"}
-        >
-          {status === "loading" ? "Loading…" : "Upload dataset"}
-        </button>
+        {!isSample && (
+          <button
+            type="button"
+            className="button button--primary button--tiny"
+            onClick={() => inputRef.current?.click()}
+            disabled={status === "loading"}
+          >
+            {status === "loading" ? "Loading…" : "Upload dataset"}
+          </button>
+        )}
 
         <input
           ref={inputRef}
@@ -94,26 +97,50 @@ export function FileLoader({
             if (file !== undefined) void loadFile(file)
           }}
         />
+        {!isSample && (
+          <button
+            key={"sample"}
+            type="button"
+            className="button button--tiny"
+            onClick={() => setSample(true)}
+            disabled={status === "loading"}
+          >
+            Try sample
+          </button>
+        )}
 
-        <div className="loader__templates">
-          {TEMPLATES_ENABLED &&
-            TEMPLATES.map((template) => (
-              <button
-                key={template.url}
-                type="button"
-                className="button button--tiny"
-                onClick={() => void loadUrl(template.url)}
-                disabled={status === "loading"}
-              >
-                {template.label}
-              </button>
-            ))}
-        </div>
+        {isSample && (
+          <div className="loader__templates">
+            {TEMPLATES_ENABLED &&
+              TEMPLATES.map((template) => (
+                <button
+                  key={template.url}
+                  type="button"
+                  className="button button--tiny"
+                  onClick={() => void loadUrl(template.url)}
+                  disabled={status === "loading"}
+                >
+                  {template.label}
+                </button>
+              ))}
+          </div>
+        )}
 
         {showError && error !== null && <p className="loader__error">{error}</p>}
 
         {mapping !== null && MAPPING_SUMMARY_ENABLED === true && <MappingSummary />}
       </div>
+      {isSample && (
+        <button
+          key={"sample back"}
+          type="button"
+          className="button button--primary landing__back button--tiny"
+          onClick={() => setSample(false)}
+          disabled={status === "loading"}
+        >
+          ← Back
+        </button>
+      )}
     </section>
   )
 }

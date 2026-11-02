@@ -5,11 +5,12 @@ import { ClusterRunBuilder } from "../core/cluster/run.ts";
 import { CLUSTER_DEFAULTS } from "../core/cluster/types.ts";
 import { countLivePatients, spliceStates } from "../core/model/reshape.ts";
 import { fromPayload } from "../core/model/transfer.ts";
-import { applyFilters, emptyFilters, intersectTypologies, } from "../core/query/filters.ts";
+import { applyFilters, emptyFilters, filterFailures, intersectTypologies, UNSELECTED, } from "../core/query/filters.ts";
 import { visibleExtent } from "../core/query/extent.ts";
+import { activeSteps, isolatedClusters, reconcileOrder, } from "../core/query/pipeline.ts";
 import { emptyHistory, pushHistory, redo, snapshotOf, undo, } from "../core/query/history.ts";
 import { Selection } from "../core/query/Selection.ts";
-import { startsWithPath } from "../core/stats/pathTree.ts";
+import { effectiveSteps, matchesSteps, } from "../core/stats/pathTree.ts";
 import { buildDistributions } from "../core/stats/distributions.ts";
 import { samePin } from "../core/stats/sankey.ts";
 import { summariseStates } from "../core/stats/states.ts";
@@ -42,6 +43,39 @@ export function chartModeOf(selected) {
 /** The typology the chart is drawn along, when exactly one is selected. */
 export function focusedTypologyOf(selected) {
     return selected.length === 1 ? selected[0] : null;
+}
+/**
+ * The back target after a selection change: recorded on the way *into* the
+ * single chart, kept while it stays on screen — picking a cluster inside it is
+ * not a new place to come back from — and dropped once the chart is left.
+ */
+function nextFocusReturn(state, nextSelected, nextView) {
+    if (nextView !== "trajectories" || focusedTypologyOf(nextSelected) === null)
+        return null;
+    const onSingleChart = state.view === "trajectories" && focusedTypologyOf(state.selectedTypologies) !== null;
+    return onSingleChart ? state.focusReturn : { view: state.view, snapshot: snapshotOf(state) };
+}
+/**
+ * The typologies a path selection picks: every one that starts with the walk
+ * in progress or with any expectation switched on — the union, so saved routes
+ * merge. `[]`, the whole cohort, when there is neither.
+ *
+ * Saved paths are read through the removed states (see `effectiveSteps`); one
+ * that a removal empties picks nobody rather than everybody.
+ */
+function pathSelection(typologies, steps, expectations, active, removed) {
+    const removedSet = new Set(removed);
+    const paths = expectations
+        .filter((expectation) => active.includes(expectation.id))
+        .map((expectation) => effectiveSteps(expectation.steps, removedSet))
+        .filter((path) => path.length > 0);
+    if (steps.length > 0)
+        paths.push(steps);
+    if (paths.length === 0)
+        return [];
+    return typologies
+        .filter((typology) => paths.some((path) => matchesSteps(typology.states, path)))
+        .map((typology) => typology.key);
 }
 /** Set equality over state ids, which arrive in click order, not sorted. */
 function sameStates(a, b) {
@@ -104,10 +138,16 @@ const initial = {
     selectionVersion: 0,
     filters: emptyFilters,
     distributions: null,
+    selectionDistributions: null,
+    pipelineOrder: [],
     selectedTypologies: [],
-    pathPrefix: [],
+    pathSteps: [],
+    expectations: [],
+    activeExpectations: [],
     selectionHistory: emptyHistory,
-    view: "sankey",
+    focusReturn: null,
+    workspaceOpen: false,
+    view: "trajectories",
     sankeyOrder: "state",
     sankeyMetric: "duration",
     sankeyPin: null,
@@ -134,6 +174,8 @@ const initial = {
     showMedoids: true,
 };
 export const useEras = create()((set, get) => {
+    /** Per-patient filter failures for `selectionDistributions`, reused across scans. */
+    let failures = new Uint8Array(0);
     /**
      * Recomputes the mask in place and bumps the version. Never allocates a new
      * Selection, so this is safe to call from a pointer-move handler.
@@ -153,6 +195,7 @@ export const useEras = create()((set, get) => {
          */
         applyFilters(store, { ...filters, duration: null }, population);
         applyFilters(store, filters, selection);
+        let selectionDistributions = null;
         if (selectedTypologies.length > 0) {
             // A Set, not `includes`: a path selection can name hundreds of typologies
             // at once, and the quadratic scan that was fine for a handful of clicked
@@ -164,8 +207,25 @@ export const useEras = create()((set, get) => {
                     chosen.push(typology.patients);
             }
             intersectTypologies(selection, chosen);
+            /*
+             * The sliders' subplots. A third scan, and an exhaustive one, so it only
+             * runs while a selection exists: with nothing chosen the subplots would
+             * just be the whole-dataset curves again.
+             */
+            if (failures.length !== store.patientCount)
+                failures = new Uint8Array(store.patientCount);
+            filterFailures(store, filters, failures);
+            for (let p = 0; p < failures.length; p++)
+                failures[p] = failures[p] | UNSELECTED;
+            for (const patients of chosen) {
+                for (let i = 0; i < patients.length; i++) {
+                    const p = patients[i];
+                    failures[p] = failures[p] & ~UNSELECTED;
+                }
+            }
+            selectionDistributions = buildDistributions(store, failures);
         }
-        set({ selectionVersion: get().selectionVersion + 1 });
+        set({ selectionVersion: get().selectionVersion + 1, selectionDistributions });
     };
     /**
      * `next` plus the history entry it earns, for the same `set` as the change
@@ -182,13 +242,16 @@ export const useEras = create()((set, get) => {
         return {
             ...next,
             selectionHistory: pushHistory(state.selectionHistory, previous, { ...previous, ...next }),
+            focusReturn: nextFocusReturn(state, next.selectedTypologies ?? state.selectedTypologies, next.view ?? state.view),
         };
     };
     /** Puts a snapshot from the history back, as one write, and re-derives the masks. */
     const restore = (snapshot, selectionHistory) => {
+        const state = get();
         set({
             ...snapshotOf(snapshot),
             selectionHistory,
+            focusReturn: nextFocusReturn(state, snapshot.selectedTypologies, state.view),
             // As every other selection change: a hovered cluster belongs to the
             // typology that was drawn, which may no longer be.
             hoveredCluster: null,
@@ -281,8 +344,14 @@ export const useEras = create()((set, get) => {
             typologies,
             distributions,
             // A splice merges typologies, so a selected key can simply cease to exist.
-            selectedTypologies: reshaped ? [] : selectedTypologies.filter((key) => keys.has(key)),
-            pathPrefix: reshaped ? [] : get().pathPrefix,
+            // Expectations switched on are the exception: a saved path reads through
+            // the removal, so they pick again from the new typologies.
+            selectedTypologies: reshaped
+                ? pathSelection(typologies, [], get().expectations, get().activeExpectations, removedStates)
+                : selectedTypologies.filter((key) => keys.has(key)),
+            pathSteps: reshaped ? [] : get().pathSteps,
+            // Holds typology keys, as the history does.
+            focusReturn: reshaped ? null : get().focusReturn,
             // Both index a run that no longer describes anything on screen: a global
             // cluster index means nothing once the typologies behind it have merged.
             selectedClusters: reshaped ? [] : get().selectedClusters,
@@ -341,6 +410,7 @@ export const useEras = create()((set, get) => {
             // `buildStore` drops empty trajectories, so at ingest every row is live.
             cohortSize: store.patientCount,
             distributions: buildDistributions(store),
+            selectionDistributions: null,
             states: result.states,
             stateOrder: result.stateOrder,
             visibleStates: result.stateOrder,
@@ -355,13 +425,16 @@ export const useEras = create()((set, get) => {
             // A new file is the global reset signal, as it was in the original.
             filters: emptyFilters,
             selectedTypologies: [],
-            pathPrefix: [],
+            pathSteps: [],
+            expectations: [],
+            activeExpectations: [],
             selectedPatients: [],
             hoveredPatient: null,
             xDomainOverride: null,
             // Undoing into another file's typology keys would select nothing. `view`
             // is deliberately not here: it is how the user looks, not what the file is.
             selectionHistory: emptyHistory,
+            focusReturn: null,
             sankeyPin: null,
             sankeyCompare: null,
             hoveredTypology: null,
@@ -374,7 +447,7 @@ export const useEras = create()((set, get) => {
             selectedClusters: [],
             // The medoid layer has nothing to draw until the new run produces one,
             // and an empty chart reads as a bug rather than as "still working".
-            layers: { ...get().layers, lines: false, medoids: true },
+            layers: { ...get().layers, lines: true, medoids: true },
         });
         /*
          * Derive the masks rather than assume them.
@@ -459,7 +532,8 @@ export const useEras = create()((set, get) => {
                 // Picking a card by hand makes the selection something no prefix
                 // describes, and a breadcrumb that no longer matches the selection is
                 // worse than no breadcrumb.
-                pathPrefix: [],
+                pathSteps: [],
+                activeExpectations: [],
                 // A cluster belongs to one typology's ladder; changing which typology
                 // is drawn abandons it rather than plotting it against another.
                 selectedClusters: [],
@@ -471,7 +545,8 @@ export const useEras = create()((set, get) => {
         selectTypologies(keys) {
             set(withHistory({
                 selectedTypologies: [...keys],
-                pathPrefix: [],
+                pathSteps: [],
+                activeExpectations: [],
                 selectedClusters: [],
                 hoveredCluster: null,
             }));
@@ -486,7 +561,8 @@ export const useEras = create()((set, get) => {
         drillDown(keys) {
             set(withHistory({
                 selectedTypologies: [...keys],
-                pathPrefix: [],
+                pathSteps: [],
+                activeExpectations: [],
                 selectedClusters: [],
                 hoveredCluster: null,
                 view: "trajectories",
@@ -508,11 +584,31 @@ export const useEras = create()((set, get) => {
         focusCluster(typologyKey, cluster) {
             set(withHistory({
                 selectedTypologies: [typologyKey],
-                pathPrefix: [],
+                pathSteps: [],
+                activeExpectations: [],
                 selectedClusters: [cluster],
                 hoveredCluster: null,
                 view: "trajectories",
             }));
+            recompute();
+        },
+        leaveFocus() {
+            const { focusReturn } = get();
+            if (focusReturn === null) {
+                get().clearTypologies();
+                return;
+            }
+            set({
+                ...withHistory({
+                    ...snapshotOf(focusReturn.snapshot),
+                    view: focusReturn.view,
+                    hoveredPatient: null,
+                    hoveredCluster: null,
+                }),
+                // Spent. A Sankey returned to with one typology still selected would
+                // otherwise record *this* chart as the way back from itself.
+                focusReturn: null,
+            });
             recompute();
         },
         clearTypologies() {
@@ -521,23 +617,59 @@ export const useEras = create()((set, get) => {
             // the grid left an isolation the grid does not honour and cannot show.
             set(withHistory({
                 selectedTypologies: [],
-                pathPrefix: [],
+                pathSteps: [],
+                activeExpectations: [],
                 selectedClusters: [],
                 hoveredCluster: null,
             }));
             recompute();
         },
-        selectPath(prefix) {
-            const { typologies } = get();
+        selectPath(steps) {
+            const { typologies, expectations, activeExpectations, filters } = get();
             set(withHistory({
-                pathPrefix: prefix,
-                selectedTypologies: prefix.length === 0
-                    ? []
-                    : typologies
-                        .filter((typology) => startsWithPath(typology.states, prefix))
-                        .map((typology) => typology.key),
+                pathSteps: steps,
+                selectedTypologies: pathSelection(typologies, steps, expectations, activeExpectations, filters.removedStates),
             }));
             recompute();
+        },
+        saveExpectation() {
+            const { pathSteps, expectations, activeExpectations } = get();
+            if (pathSteps.length === 0)
+                return;
+            const id = expectations.reduce((max, expectation) => Math.max(max, expectation.id), 0) + 1;
+            // Through `withHistory` for the walk and the switch, which do change; the
+            // list is not history, so undoing this switches it off and keeps it.
+            set({
+                ...withHistory({ pathSteps: [], activeExpectations: [...activeExpectations, id] }),
+                expectations: [...expectations, { id, name: `Expectation ${id}`, steps: pathSteps }],
+            });
+        },
+        toggleExpectation(id) {
+            const { typologies, pathSteps, expectations, activeExpectations, filters } = get();
+            const active = activeExpectations.includes(id)
+                ? activeExpectations.filter((other) => other !== id)
+                : [...activeExpectations, id];
+            set(withHistory({
+                activeExpectations: active,
+                selectedTypologies: pathSelection(typologies, pathSteps, expectations, active, filters.removedStates),
+                // As any other selection change: a cluster belongs to a typology
+                // that may no longer be drawn.
+                selectedClusters: [],
+                hoveredCluster: null,
+            }));
+            recompute();
+        },
+        renameExpectation(id, name) {
+            set({
+                expectations: get().expectations.map((expectation) => expectation.id === id ? { ...expectation, name } : expectation),
+            });
+        },
+        removeExpectation(id) {
+            const { expectations, activeExpectations } = get();
+            // Switched off first, so the selection drops it the same way a toggle does.
+            if (activeExpectations.includes(id))
+                get().toggleExpectation(id);
+            set({ expectations: expectations.filter((expectation) => expectation.id !== id) });
         },
         undoSelection() {
             const step = undo(get().selectionHistory, snapshotOf(get()));
@@ -594,6 +726,10 @@ export const useEras = create()((set, get) => {
                     ? current.filter((p) => p !== patient)
                     : [...current, patient],
             });
+        },
+        openWorkspace() {
+            if (!get().workspaceOpen)
+                set({ workspaceOpen: true });
         },
         setView(view) {
             if (get().view === view)
@@ -789,4 +925,18 @@ export const useEras = create()((set, get) => {
             set({ ...initial, rendererKind: get().rendererKind });
         },
     };
+});
+/**
+ * The clusters isolating the chart on screen: only the single-typology
+ * Trajectories chart narrows to them. See `isolatedClusters`.
+ */
+export function isolatedClustersOf(state) {
+    const focusedKey = state.view === "trajectories" ? focusedTypologyOf(state.selectedTypologies) : null;
+    return isolatedClusters(clusterRunOf(state), state.selectedClusters, focusedKey);
+}
+useEras.subscribe((state) => {
+    const next = reconcileOrder(state.pipelineOrder, activeSteps(state.filters, state.selectedTypologies, isolatedClustersOf(state)));
+    // Identity when nothing changed, so this settles after one write.
+    if (next !== state.pipelineOrder)
+        useEras.setState({ pipelineOrder: next });
 });

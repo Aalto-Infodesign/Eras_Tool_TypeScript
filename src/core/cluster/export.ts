@@ -1,4 +1,5 @@
 import type { IdColumn } from "../model/IdColumn.ts"
+import type { Typology } from "../types.ts"
 import type { TypologyClusters } from "./types.ts"
 
 /**
@@ -81,6 +82,78 @@ export function clusterSummaryTsv(
   }
 
   return lines.join("\n")
+}
+
+/**
+ * One row per typology in the selection, its clusters packed into one JSON cell:
+ * `[{"medoid": id, "members": [[id, weight], …]}, …]`, largest cluster first.
+ *
+ * The membership TSV grows a column per cluster; this grows only with the
+ * patients, because each one carries a single weight — its membership in the
+ * cluster it was assigned to. `keep` narrows every cluster to the selection; a
+ * cluster with nobody left is dropped, but a medoid outside the selection still
+ * names its cluster. A typology without clustering (too small, or not reached
+ * yet) is one cluster with a `null` medoid and `null` weights.
+ *
+ * Returned as one chunk per line, for a `Blob`: a typology of half a million
+ * patients is a cell of megabytes.
+ */
+export function typologyClustersTsv(
+  typologies: readonly Typology[],
+  results: ReadonlyMap<string, TypologyClusters> | null,
+  keep: (patient: number) => boolean,
+  ids: IdColumn,
+): string[] {
+  const chunks: string[] = [
+    `# clusters = JSON [{"medoid": id, "members": [[id, weight], ...]}, ...]; weight = Gaussian-kernel membership in the assigned cluster, not a calibrated probability; medoid null = not clustered\n`,
+    `${["typology_id", "states", "n_patients", "n_clusters", "clusters"].join("\t")}\n`,
+  ]
+
+  typologies.forEach((typology, rank) => {
+    const result = results?.get(typology.key)
+    let clusters: { medoid: string; members: string[] }[]
+
+    if (result === undefined) {
+      const members: string[] = []
+      for (const patient of typology.patients) {
+        if (keep(patient)) members.push(`[${JSON.stringify(ids.at(patient))},null]`)
+      }
+      clusters = [{ medoid: "null", members }]
+    } else {
+      clusters = Array.from({ length: result.k }, (_, c) => ({
+        medoid: JSON.stringify(ids.at(result.medoidPatient[c] as number)),
+        members: [] as string[],
+      }))
+      for (let row = 0; row < result.n; row++) {
+        const patient = result.patients[row] as number
+        if (!keep(patient)) continue
+        const c = result.assignment[row] as number
+        const weight = Math.round((result.memberships[row * result.k + c] ?? 0) * 1000) / 1000
+        clusters[c]?.members.push(`[${JSON.stringify(ids.at(patient))},${weight}]`)
+      }
+    }
+
+    clusters = clusters
+      .filter((cluster) => cluster.members.length > 0)
+      .sort((a, b) => b.members.length - a.members.length)
+    const size = clusters.reduce((sum, cluster) => sum + cluster.members.length, 0)
+    if (size === 0) return
+
+    const cell = `[${clusters
+      .map((cluster) => `{"medoid":${cluster.medoid},"members":[${cluster.members.join(",")}]}`)
+      .join(",")}]`
+    chunks.push(
+      `${[
+        `T${rank + 1}`,
+        typology.key,
+        String(size),
+        String(result === undefined ? 0 : clusters.length),
+        cell,
+      ].join("\t")}\n`,
+    )
+  })
+
+  return chunks
 }
 
 // Both used to live here. They moved out when the silhouettes gained their own
