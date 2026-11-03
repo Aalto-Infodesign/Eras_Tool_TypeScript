@@ -3,3 +3,10 @@ dist
 *.local
 .DS_Store
 public/data/generated
+
+# Sources are TypeScript only; Vite compiles them on the fly. A .js here is
+# stray tsc output, and Vite would pick vite.config.js over vite.config.ts.
+/src/**/*.js
+/scripts/**/*.js
+/bench/**/*.js
+/vite.config.js

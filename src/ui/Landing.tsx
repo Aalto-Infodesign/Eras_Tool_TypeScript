@@ -26,11 +26,11 @@ export function Landing(): React.JSX.Element {
   return (
     <main className="app__empty landing">
       <h1 className="app__title">
-        ERAS Tool <span>· TS</span>
+        ERAS Tool <span>· 2.0</span>
       </h1>
       <p className="landing__file">
-        <b>{fileName}</b> · {cohortSize.toLocaleString()} patients ·{" "}
-        {stateCount.toLocaleString()} states · {typologyCount.toLocaleString()} typologies
+        <b>{fileName}</b> · {cohortSize.toLocaleString()} patients · {stateCount.toLocaleString()}{" "}
+        states · {typologyCount.toLocaleString()} typologies
       </p>
 
       <div className="landing__choices">
@@ -47,14 +47,14 @@ export function Landing(): React.JSX.Element {
         <button type="button" className="landing__choice" onClick={() => setExploring(true)}>
           <span className="landing__choice-title">Set expectations</span>
           <span className="landing__choice-text">
-            Walk the cohort one state at a time first, and open the charts on the path you
-            expect to matter.
+            Walk the cohort one state at a time first, and open the charts on the path you expect to
+            matter.
           </span>
         </button>
       </div>
 
       <button type="button" className="button button--tiny landing__back" onClick={reset}>
-        ← Use a different file
+        Use a different file
       </button>
 
       {/*

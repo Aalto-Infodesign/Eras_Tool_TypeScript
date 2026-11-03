@@ -106,7 +106,7 @@ export function paintGeometry(
       )
     }
 
-    for (const [row, path] of byRow) {
+    Array.from(byRow).forEach(([row, path], i) => {
       const from = rowColors[row] ?? "currentColor"
       const to = rowColors[row + 1] ?? from
 
@@ -116,12 +116,13 @@ export function paintGeometry(
         ctx.strokeStyle = from
       } else {
         const gradient = ctx.createLinearGradient(0, yOf(row), 0, yOf(row + 1))
-        gradient.addColorStop(0, from)
+        const firstStop = i === Array.from(byRow).length - 1 ? 0.4 : 0.8
+        gradient.addColorStop(firstStop, from)
         gradient.addColorStop(1, to)
         ctx.strokeStyle = gradient
       }
       ctx.stroke(path)
-    }
+    })
 
     ctx.globalAlpha = 1
     return

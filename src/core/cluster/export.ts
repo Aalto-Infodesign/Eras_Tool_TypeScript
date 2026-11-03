@@ -41,10 +41,7 @@ export function membershipsTsv(result: TypologyClusters, ids: IdColumn): string 
 
   for (let row = 0; row < result.n; row++) {
     const assigned = result.assignment[row] as number
-    const cells: string[] = [
-      ids.at(result.patients[row] as number),
-      medoidIds[assigned] ?? "",
-    ]
+    const cells: string[] = [ids.at(result.patients[row] as number), medoidIds[assigned] ?? ""]
     for (let c = 0; c < result.k; c++) {
       cells.push((result.memberships[row * result.k + c] ?? 0).toFixed(6))
     }
@@ -84,76 +81,80 @@ export function clusterSummaryTsv(
   return lines.join("\n")
 }
 
+/** Lines per `Blob` chunk in the members file, which runs to one line per patient. */
+const MEMBER_CHUNK = 5000
+
 /**
- * One row per typology in the selection, its clusters packed into one JSON cell:
- * `[{"medoid": id, "members": [[id, weight], …]}, …]`, largest cluster first.
+ * The selection as two tables joined on `typology_id`:
  *
- * The membership TSV grows a column per cluster; this grows only with the
- * patients, because each one carries a single weight — its membership in the
- * cluster it was assigned to. `keep` narrows every cluster to the selection; a
- * cluster with nobody left is dropped, but a medoid outside the selection still
- * names its cluster. A typology without clustering (too small, or not reached
- * yet) is one cluster with a `null` medoid and `null` weights.
+ * - `typologies`: `typology_id, states, n_patients, n_clusters`, one row per
+ *   typology with anyone in the selection.
+ * - `members`: `typology_id, cluster, id, weight, is_medoid`, one row per
+ *   patient — long rather than a column per cluster, so it grows only with the
+ *   patients however finely a typology was clustered.
  *
- * Returned as one chunk per line, for a `Blob`: a typology of half a million
- * patients is a cell of megabytes.
+ * `typology_id` is `T` + the typology's size rank. `cluster` is the cluster's
+ * index within its typology, the same number the cluster summary uses.
+ * `weight` is the patient's Gaussian-kernel weight in the cluster it was
+ * assigned to — a kernel weight, not a calibrated weight.
+ *
+ * `keep` narrows every cluster to the selection: a cluster with nobody left is
+ * not counted, and a medoid outside the selection has no row, so it is not
+ * flagged either. A typology without clustering (too small, or not reached yet)
+ * has `n_clusters` 0 and `NA` for its members' cluster and weight.
  */
-export function typologyClustersTsv(
+export function selectionTsvs(
   typologies: readonly Typology[],
   results: ReadonlyMap<string, TypologyClusters> | null,
   keep: (patient: number) => boolean,
   ids: IdColumn,
-): string[] {
-  const chunks: string[] = [
-    `# clusters = JSON [{"medoid": id, "members": [[id, weight], ...]}, ...]; weight = Gaussian-kernel membership in the assigned cluster, not a calibrated probability; medoid null = not clustered\n`,
-    `${["typology_id", "states", "n_patients", "n_clusters", "clusters"].join("\t")}\n`,
+): { typologies: string[]; members: string[] } {
+  const typologyLines: string[] = [["typology_id", "states", "n_patients", "n_clusters"].join("\t")]
+  const members: string[] = [
+    `${["typology_id", "cluster", "id", "weight", "is_medoid"].join("\t")}\n`,
   ]
+  let pending: string[] = []
+  const push = (line: string): void => {
+    pending.push(line)
+    if (pending.length < MEMBER_CHUNK) return
+    members.push(`${pending.join("\n")}\n`)
+    pending = []
+  }
 
   typologies.forEach((typology, rank) => {
+    const id = `T${rank + 1}`
     const result = results?.get(typology.key)
-    let clusters: { medoid: string; members: string[] }[]
+    let size = 0
+    let clusterCount = 0
 
     if (result === undefined) {
-      const members: string[] = []
       for (const patient of typology.patients) {
-        if (keep(patient)) members.push(`[${JSON.stringify(ids.at(patient))},null]`)
+        if (!keep(patient)) continue
+        push(`${id}\tNA\t${ids.at(patient)}\tNA\tFALSE`)
+        size += 1
       }
-      clusters = [{ medoid: "null", members }]
     } else {
-      clusters = Array.from({ length: result.k }, (_, c) => ({
-        medoid: JSON.stringify(ids.at(result.medoidPatient[c] as number)),
-        members: [] as string[],
-      }))
+      const seen = new Uint8Array(result.k)
       for (let row = 0; row < result.n; row++) {
         const patient = result.patients[row] as number
         if (!keep(patient)) continue
         const c = result.assignment[row] as number
         const weight = Math.round((result.memberships[row * result.k + c] ?? 0) * 1000) / 1000
-        clusters[c]?.members.push(`[${JSON.stringify(ids.at(patient))},${weight}]`)
+        const isMedoid = result.medoidPatient[c] === patient ? "TRUE" : "FALSE"
+        push(`${id}\t${c}\t${ids.at(patient)}\t${weight}\t${isMedoid}`)
+        size += 1
+        if (seen[c] === 0) {
+          seen[c] = 1
+          clusterCount += 1
+        }
       }
     }
 
-    clusters = clusters
-      .filter((cluster) => cluster.members.length > 0)
-      .sort((a, b) => b.members.length - a.members.length)
-    const size = clusters.reduce((sum, cluster) => sum + cluster.members.length, 0)
-    if (size === 0) return
-
-    const cell = `[${clusters
-      .map((cluster) => `{"medoid":${cluster.medoid},"members":[${cluster.members.join(",")}]}`)
-      .join(",")}]`
-    chunks.push(
-      `${[
-        `T${rank + 1}`,
-        typology.key,
-        String(size),
-        String(result === undefined ? 0 : clusters.length),
-        cell,
-      ].join("\t")}\n`,
-    )
+    if (size > 0) typologyLines.push([id, typology.key, size, clusterCount].join("\t"))
   })
 
-  return chunks
+  if (pending.length > 0) members.push(`${pending.join("\n")}\n`)
+  return { typologies: [`${typologyLines.join("\n")}\n`], members }
 }
 
 // Both used to live here. They moved out when the silhouettes gained their own

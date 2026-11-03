@@ -34,6 +34,8 @@ uniform vec2  uOffset;     // device pixels, for faking spine thickness
 uniform sampler2D uRows;
 
 out vec4 vColor;
+flat out vec4 vTo;
+out float vT;
 
 float rowOf(float stateId) {
   return texelFetch(uRows, ivec2(int(stateId), 0), 0).r;
@@ -60,13 +62,39 @@ void main() {
   // The caller passes uOpacity = 1 whenever uFade > 0, so a faded layer is
   // opaque and overlapping lines land on the same value instead of stacking.
   vColor = vec4(mix(aColor.rgb, uBackground, uFade), aColor.a * uOpacity);
+  // A flat varying takes the line's last vertex — its target end — unblended.
+  vTo = vColor;
+  // 0 at a segment's source end, 1 at its target: vertices come in pairs from 0.
+  vT = float(gl_VertexID & 1);
 }`
 
+/**
+ * Where along a segment the source colour starts giving way to the target's:
+ * the gradient holds the colour of the state being left, then blends over the
+ * last stretch — `paint2d`'s row gradient, on the GPU.
+ */
+const COLOR_STOP = 0.8
+
+/*
+ * Each vertex carries only its own colour, so the fragment shader cannot place
+ * a stop between two colours it never sees. It can recover them, though, at no
+ * memory cost: `vTo` is the target colour, flat, and the interpolated `vColor`
+ * is `mix(from, to, t)`, which solves for `from`. The solve divides by `1 - t`,
+ * but past the stop `from`'s weight shrinks just as fast, so the error stays
+ * bounded where the division gets large.
+ */
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 in vec4 vColor;
+flat in vec4 vTo;
+in float vT;
 out vec4 outColor;
-void main() { outColor = vec4(vColor.rgb * vColor.a, vColor.a); }`
+void main() {
+  vec4 from = (vColor - vTo * vT) / max(1.0 - vT, 1e-3);
+  float f = clamp((vT - ${COLOR_STOP.toFixed(2)}) / ${(1 - COLOR_STOP).toFixed(2)}, 0.0, 1.0);
+  vec4 c = clamp(mix(from, vTo, f), 0.0, 1.0);
+  outColor = vec4(c.rgb * c.a, c.a);
+}`
 
 /**
  * Picking pass. Identical geometry, but each segment is painted in a colour that

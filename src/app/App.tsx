@@ -5,6 +5,7 @@ import { SankeyChart } from "../ui/SankeyChart.tsx"
 import { SettingsModal } from "../ui/SettingsModal.tsx"
 import { SideColumn } from "../ui/SideColumn.tsx"
 import { TrajectoriesChart } from "../ui/TrajectoriesChart.tsx"
+import { InteractiveBackground } from "@ui/InteractiveBackground.tsx"
 
 export function App(): React.JSX.Element {
   const status = useEras((s) => s.status)
@@ -38,8 +39,9 @@ export function App(): React.JSX.Element {
         // No header: once a dataset is open the loader is the Data side panel,
         // so before then it is the whole screen.
         <main className="app__empty">
+          <InteractiveBackground />
           <h1 className="app__title">
-            ERAS Tool <span>· TS</span>
+            ERAS Tool <span>· 2.0</span>
           </h1>
           <p>
             {status === "loading"

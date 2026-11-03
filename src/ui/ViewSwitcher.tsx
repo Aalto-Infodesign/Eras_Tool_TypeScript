@@ -92,7 +92,7 @@ export function ViewSwitcher(): React.JSX.Element | null {
         <button
           type="button"
           className="button button--primary button--tiny"
-          title="One row per typology in the selection, its clusters and their members as JSON"
+          title="Two TSVs: one row per typology in the selection, and one row per individual with their cluster"
           onClick={exportSelection}
         >
           ⤓ Export Selection

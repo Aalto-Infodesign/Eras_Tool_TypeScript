@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false --pretty",
+    "typecheck": "tsc --noEmit -p tsconfig.json --pretty",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "vitest bench --run",

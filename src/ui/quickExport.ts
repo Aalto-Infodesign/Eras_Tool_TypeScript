@@ -1,5 +1,5 @@
 import { clusterRunOf, focusedTypologyOf, useEras } from "../app/store.ts"
-import { membershipsTsv, typologyClustersTsv } from "../core/cluster/export.ts"
+import { membershipsTsv, selectionTsvs } from "../core/cluster/export.ts"
 import { clusterMembers } from "../core/cluster/medoids.ts"
 import {
   isolatedClusters,
@@ -60,8 +60,8 @@ function scanSelection(state: ErasState): { failures: Uint8Array; bits: number }
 const baseName = (state: ErasState): string => (state.fileName ?? "eras").replace(/\.[^.]+$/, "")
 
 /**
- * The selection as one row per typology, its clusters and their members packed
- * into a JSON cell (`typologyClustersTsv`).
+ * The selection as two files joined on `typology_id`: one row per typology, and
+ * one row per patient with its cluster (`selectionTsvs`).
  */
 export function exportSelection(): void {
   const state = useEras.getState()
@@ -69,16 +69,15 @@ export function exportSelection(): void {
   if (state.store === null || scan === null) return
 
   const { failures, bits } = scan
-  download(
-    `${baseName(state)}-selection-typologies.tsv`,
-    typologyClustersTsv(
-      state.typologies,
-      clusterRunOf(state)?.byTypology ?? null,
-      (patient) => ((failures[patient] as number) & bits) === 0,
-      state.store.ids,
-    ),
-    "text/tab-separated-values",
+  const files = selectionTsvs(
+    state.typologies,
+    clusterRunOf(state)?.byTypology ?? null,
+    (patient) => ((failures[patient] as number) & bits) === 0,
+    state.store.ids,
   )
+  const base = `${baseName(state)}-selection`
+  download(`${base}-typologies.tsv`, files.typologies, "text/tab-separated-values")
+  download(`${base}-members.tsv`, files.members, "text/tab-separated-values")
 }
 
 /** The selection as a plain id list, one per line: enough to join back onto the source data. */
