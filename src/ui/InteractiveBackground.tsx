@@ -32,7 +32,7 @@ export function InteractiveBackground(): React.JSX.Element {
 
     // draw()
     let frame = 0
-    const draw = (time: number): void => {
+    const draw = (_time: number): void => {
       ctx.clearRect(0, 0, width, height)
       // your sketch: width, height, mouse, time
       ctx.fillStyle = "blue"
