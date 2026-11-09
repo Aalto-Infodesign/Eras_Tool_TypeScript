@@ -1,6 +1,7 @@
 import { useState } from "react"
 
 import { useEras } from "../app/store.ts"
+// import { CohortGrid } from "./CohortGrid.tsx"
 import { PathExplorerDialog } from "./PathExplorer.tsx"
 
 /**
@@ -25,6 +26,8 @@ export function Landing(): React.JSX.Element {
 
   return (
     <main className="app__empty landing">
+      {/* <CohortGrid /> */}
+
       <h1 className="app__title">
         ERAS Tool <span>· 2.0</span>
       </h1>

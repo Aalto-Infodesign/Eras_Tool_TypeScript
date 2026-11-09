@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { useEras } from "../app/store.ts"
 import { clusterMembers, medoidPatients } from "../core/cluster/medoids.ts"
@@ -47,9 +47,18 @@ import { useClusterRun } from "./useClusterRun.ts"
  * one thing this view exists not to make you do.
  *
  * Three canvases, not one per panel: browsers cap the number of live contexts,
- * and a grid of twenty-four would also mean a resize observer and a draw loop
+ * and a grid of hundreds would also mean a resize observer and a draw loop
  * each. The panels are rectangles of shared contexts, which is exactly what
  * `paint2d` was extracted for.
+ *
+ * **Every** typology gets a panel, and only the rows in view cost anything. The
+ * grid is sized for all of them, but geometry is built for a panel only once
+ * its row scrolls near the viewport (and kept, up to `PANEL_CACHE`), the DOM
+ * holds buttons for those rows alone, and the canvases cover just that window
+ * of rows rather than the whole grid — which at a few hundred rows would be
+ * past the browser's canvas size limit anyway. Scrolling inside the window is
+ * the compositor's; the layers repaint only when the window has to move, and
+ * it moves `OVERSCAN_ROWS` ahead so that is once every few rows, not per row.
  *
  * Three rather than one because the layers change on completely different
  * clocks, and the expensive one changes least:
@@ -88,8 +97,19 @@ const COMPACT_PITCH = 20
 const LABEL_WIDTH = 116
 /** Below the last row: the label strip. */
 const FOOTER = 20
-/** Past this the grid is unreadable anyway, and the canvas gets silly tall. */
-const MAX_PANELS = 24
+/**
+ * Rows painted beyond each edge of the viewport. The window only moves once the
+ * viewport leaves it, and then re-centres — so this is also how many rows you
+ * can scroll before anything is repainted.
+ */
+const OVERSCAN_ROWS = 2
+/** Rows assumed before the viewport has been measured. */
+const INITIAL_ROWS = 6
+/**
+ * Panels whose geometry is kept after scrolling off, so scrolling back is free.
+ * Never fewer than are on screen; least recently shown go first.
+ */
+const PANEL_CACHE = 160
 /** Spine hit tolerance, in rows. A panel's rows are its steps. */
 const PICK_RADIUS_ROWS = 0.35
 const SPINE_OPACITY = 0.95
@@ -215,71 +235,162 @@ export function SmallMultiples({
 
   /*
    * The selection, in the list's own order — or, with nothing selected, the
-   * biggest few, because this is what the Trajectories view shows before
-   * anything is picked. A path selection can name hundreds, and past
-   * `MAX_PANELS` a grid says no more than the overlay it replaced. The rule is
+   * biggest ones, because this is what the Trajectories view shows before
+   * anything is picked. All of them: a path selection can name hundreds, and
+   * the grid is windowed, so what is off screen costs nothing. The rule is
    * `panelTypologies`, shared with the View panel's mini of this grid.
    */
   const shown = useMemo<readonly Typology[]>(
-    () => panelTypologies(typologies, selected, MAX_PANELS),
+    () => panelTypologies(typologies, selected, Number.POSITIVE_INFINITY),
     [typologies, selected],
   )
-
-  const hiddenCount = (selected.length === 0 ? typologies.length : selected.length) - shown.length
 
   /*
    * How much room a panel gets, and with it how much of its cohort is worth
    * drawing. Read off `shown` rather than off `panels`, because the geometry
-   * below needs the budget it decides.
+   * below needs the budget it decides — and so does the window, which needs
+   * the layout before it can say which panels to build.
    */
   const isDetailed = shown.length <= DETAILED_LIMIT
   const budget = isDetailed ? DETAILED_BUDGET : COMPACT_BUDGET
 
-  /**
-   * Per panel: a row per step of the sequence, and geometry for the members of
-   * it that survive the filters.
-   *
-   * `rowsFrom: "position"` puts the step index in the buffer where the state id
-   * normally goes, so the row lookup is the identity and a revisited state
-   * cannot collapse onto its first appearance.
+  /*
+   * One height for every cell, sized to the longest sequence in the grid — all
+   * of it, not just the rows in view, or cells would change height as you
+   * scrolled. Panels are top-aligned inside it, so the pitch is identical and a
+   * short sequence simply stops early.
    */
-  const panels = useMemo(() => {
+  const rowPitch = isDetailed ? DETAILED_PITCH : COMPACT_PITCH
+  const labelWidth = isDetailed ? LABEL_WIDTH : 0
+
+  const maxSteps = useMemo(
+    () => shown.reduce((most, typology) => Math.max(most, typology.states.length), 1),
+    [shown],
+  )
+  const panelHeight = PANEL_TOP + maxSteps * rowPitch + FOOTER
+
+  const columns = Math.max(
+    1,
+    Math.min(shown.length || 1, isDetailed ? DETAILED_COLUMNS : COMPACT_COLUMNS),
+  )
+  const panelWidth = Math.floor((width - PANEL_GAP * (columns - 1)) / Math.max(columns, 1))
+  const gridRows = Math.ceil(shown.length / columns)
+  /** One grid row, gap included: the unit the window moves in. */
+  const rowStride = panelHeight + PANEL_GAP
+  const height = Math.max(1, gridRows * rowStride)
+
+  /*
+   * The window: the grid rows that are built, painted and mounted — the ones
+   * in view, plus `OVERSCAN_ROWS` either side. Grid rows, not pixels, so
+   * scrolling within the window is not a React render at all.
+   */
+  const [grid, setGrid] = useState<HTMLDivElement | null>(null)
+  const [rowWindow, setRowWindow] = useState<readonly [number, number]>([0, INITIAL_ROWS - 1])
+  const scroller = useRef<HTMLElement | null>(null)
+
+  /**
+   * Re-derives the window from where the grid sits in its scroller. Leaves it
+   * alone while the viewport is still inside it, unless `force` — which the
+   * layout asks for, since a new row height makes the old window the wrong size.
+   */
+  const measure = useRef<(force: boolean) => void>(() => {})
+  measure.current = (force) => {
+    if (grid === null || gridRows === 0) return
+    const view = scroller.current
+    const viewTop = view === null ? 0 : view.getBoundingClientRect().top
+    const viewHeight = view === null ? window.innerHeight : view.clientHeight
+    const top = viewTop - grid.getBoundingClientRect().top
+
+    const last = gridRows - 1
+    const firstVisible = Math.min(last, Math.max(0, Math.floor(top / rowStride)))
+    const lastVisible = Math.min(last, Math.max(0, Math.floor((top + viewHeight) / rowStride)))
+
+    /*
+     * Always the same number of rows, slid rather than trimmed at the ends: the
+     * window's height is the canvases' height, and resizing a canvas reallocates
+     * its backing store — three of them, on every move.
+     */
+    const count = Math.min(gridRows, Math.ceil(viewHeight / rowStride) + 1 + 2 * OVERSCAN_ROWS)
+
+    setRowWindow((current) => {
+      const covers =
+        current[0] <= firstVisible &&
+        current[1] >= lastVisible &&
+        current[1] <= last &&
+        current[1] - current[0] + 1 === count
+      if (covers && !force) return current
+      const start = Math.max(0, Math.min(firstVisible - OVERSCAN_ROWS, gridRows - count))
+      const next = [start, start + count - 1] as const
+      return next[0] === current[0] && next[1] === current[1] ? current : next
+    })
+  }
+
+  useLayoutEffect(() => {
+    if (grid === null) return
+    scroller.current = scrollParent(grid)
+    const target: HTMLElement | Window = scroller.current ?? window
+    const onChange = (): void => measure.current(false)
+
+    target.addEventListener("scroll", onChange, { passive: true })
+    const observer = new ResizeObserver(onChange)
+    observer.observe(scroller.current ?? document.documentElement)
+    return () => {
+      target.removeEventListener("scroll", onChange)
+      observer.disconnect()
+    }
+  }, [grid])
+
+  useLayoutEffect(() => measure.current(true), [grid, rowStride, gridRows])
+
+  const firstRow = Math.min(rowWindow[0], Math.max(0, gridRows - 1))
+  const lastRow = Math.max(firstRow, Math.min(rowWindow[1], gridRows - 1))
+  /** Grid index of `panels[0]`. Every index below is a grid index unless named local. */
+  const first = firstRow * columns
+  const end = Math.min(shown.length, (lastRow + 1) * columns)
+  /** Where the canvases sit in the grid, and how much of it they cover. */
+  const canvasTop = firstRow * rowStride
+  const canvasHeight = Math.max(1, (lastRow - firstRow + 1) * rowStride)
+
+  /*
+   * Built panels, by typology, so a row scrolled back into view is not built
+   * again. Thrown away whole when anything a panel is built from changes.
+   */
+  const panelCache = useRef<{ deps: readonly unknown[]; byKey: Map<string, Panel> }>({
+    deps: [],
+    byKey: new Map(),
+  })
+
+  /** The panels in the window, in grid order; `panels[i]` is grid index `first + i`. */
+  const panels = useMemo<readonly Panel[]>(() => {
     if (store === null) return []
 
-    return shown.map((typology) => {
-      const steps = Array.from(typology.states)
-      const rows = new Float32Array(steps.length)
-      for (let i = 0; i < steps.length; i++) rows[i] = i
+    const cache = panelCache.current
+    const deps = [store, typologies, panelOptions, selection, selectionVersion, budget]
+    if (deps.some((dep, i) => dep !== cache.deps[i])) {
+      cache.deps = deps
+      cache.byKey = new Map()
+    }
 
-      const mask = selection?.mask ?? null
-      const members: number[] = []
-      for (let i = 0; i < typology.patients.length; i++) {
-        const patient = typology.patients[i] as number
-        if (mask === null || mask[patient] === 1) members.push(patient)
-      }
+    const mask = selection?.mask ?? null
+    const out: Panel[] = []
+    for (let index = first; index < end; index++) {
+      const typology = shown[index] as Typology
+      const panel =
+        cache.byKey.get(typology.key) ?? buildPanel(store, typology, mask, budget, panelOptions)
+      // Re-inserted, so the map's order is least recently shown first.
+      cache.byKey.delete(typology.key)
+      cache.byKey.set(typology.key, panel)
+      out.push(panel)
+    }
 
-      /*
-       * Every nth member, when there are more than the panel can show. A stride
-       * over a list in patient order is an unbiased sample of the cohort, and a
-       * fixed one keeps the picture identical between repaints — a random
-       * sample would reshuffle the panel every time the layout changed.
-       */
-      const stride = Math.max(1, Math.ceil(members.length / budget))
-      const drawn = stride === 1 ? members : members.filter((_, i) => i % stride === 0)
-
-      return {
-        typology,
-        steps,
-        repeated: repeatedSteps(typology.states),
-        labels: sequenceLabels(typology.states, store.stateNames),
-        rows,
-        size: members.length,
-        drawn: drawn.length,
-        geometry: buildGeometry(store, Uint32Array.from(drawn), panelOptions),
-      }
-    })
+    const limit = Math.max(PANEL_CACHE, out.length)
+    for (const key of cache.byKey.keys()) {
+      if (cache.byKey.size <= limit) break
+      cache.byKey.delete(key)
+    }
+    return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, shown, panelOptions, selection, selectionVersion, budget])
+  }, [store, typologies, shown, panelOptions, selection, selectionVersion, budget, first, end])
 
   /**
    * One spine per cluster of each panel's own typology.
@@ -411,15 +522,15 @@ export function SmallMultiples({
     const ref = clusterRun.clusters[pointedCluster]
     if (ref === undefined) return null
 
-    const panel = panels.findIndex((candidate) => candidate.typology.key === ref.typologyKey)
-    if (panel === -1) return null
+    const local = panels.findIndex((candidate) => candidate.typology.key === ref.typologyKey)
+    if (local === -1) return null
 
     return {
-      panel,
+      panel: first + local,
       geometry: buildGeometry(store, Uint32Array.of(ref.medoidPatient), panelOptions),
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, showSpines, pointedCluster, clusterRun, clusterVersion, panels, panelOptions])
+  }, [store, showSpines, pointedCluster, clusterRun, clusterVersion, panels, first, panelOptions])
 
   /** The members of the settled cluster, and which panel they belong under. */
   const highlight = useMemo<{
@@ -431,13 +542,13 @@ export function SmallMultiples({
     const ref = clusterRun.clusters[hoveredCluster]
     if (ref === undefined) return null
 
-    const panel = panels.findIndex((candidate) => candidate.typology.key === ref.typologyKey)
-    if (panel === -1) return null
+    const local = panels.findIndex((candidate) => candidate.typology.key === ref.typologyKey)
+    if (local === -1) return null
 
     const members = clusterMembers(clusterRun, [hoveredCluster], selection?.mask ?? null)
     if (members.length === 0) return null
 
-    return { panel, members: buildGeometry(store, members, panelOptions) }
+    return { panel: first + local, members: buildGeometry(store, members, panelOptions) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     store,
@@ -446,31 +557,13 @@ export function SmallMultiples({
     clusterRun,
     clusterVersion,
     panels,
+    first,
     selection,
     selectionVersion,
     panelOptions,
   ])
 
-  /*
-   * One height for every cell, sized to the longest sequence on screen. Panels
-   * are top-aligned inside it, so the pitch is identical and a short sequence
-   * simply stops early.
-   */
-  const rowPitch = isDetailed ? DETAILED_PITCH : COMPACT_PITCH
-  const labelWidth = isDetailed ? LABEL_WIDTH : 0
-
-  const maxSteps = panels.reduce((most, panel) => Math.max(most, panel.steps.length), 1)
-  const panelHeight = PANEL_TOP + maxSteps * rowPitch + FOOTER
-
-  const columns = Math.max(
-    1,
-    Math.min(panels.length || 1, isDetailed ? DETAILED_COLUMNS : COMPACT_COLUMNS),
-  )
-  const panelWidth = Math.floor((width - PANEL_GAP * (columns - 1)) / Math.max(columns, 1))
-  const gridRows = Math.ceil(panels.length / Math.max(columns, 1))
-  const height = Math.max(1, gridRows * (panelHeight + PANEL_GAP))
-
-  /** Where a panel sits in the grid, in CSS pixels. The one definition of it. */
+  /** Where a panel sits in the grid, in CSS pixels, by grid index. The one definition of it. */
   const rectOf = useCallback(
     (index: number): { left: number; top: number; width: number; height: number } => ({
       left: (index % columns) * (panelWidth + PANEL_GAP),
@@ -525,19 +618,21 @@ export function SmallMultiples({
    * Everything a panel paints lands in the same band — top margin, then the
    * steps at the shared pitch — which is what keeps a spine on the rung its
    * members are on. Derived once per panel and handed to whichever layer is
-   * being drawn.
+   * being drawn. In canvas pixels, so measured from the window's top, not the
+   * grid's.
    */
   const bandOf = useCallback(
-    (index: number, panel: (typeof panels)[number], dpr: number) => {
+    (index: number, panel: Panel, dpr: number) => {
       const rect = rectOf(index)
+      const top = rect.top - canvasTop
 
       return {
         panelX: rect.left * dpr,
-        panelY: rect.top * dpr,
+        panelY: top * dpr,
         panelWidth: rect.width * dpr,
         target: {
           x: (rect.left + labelWidth) * dpr,
-          y: rect.top * dpr,
+          y: top * dpr,
           width: (rect.width - labelWidth) * dpr,
           height: (PANEL_TOP * 2 + panel.steps.length * rowPitch) * dpr,
         },
@@ -549,16 +644,16 @@ export function SmallMultiples({
         background,
       }
     },
-    [rectOf, labelWidth, rowPitch, xDomain, background],
+    [rectOf, canvasTop, labelWidth, rowPitch, xDomain, background],
   )
 
-  /** Sizes a layer to the grid and clears it. `null` while it is unmounted. */
+  /** Sizes a layer to the window and clears it. `null` while it is unmounted. */
   const prepare = useCallback(
     (canvas: HTMLCanvasElement | null, dpr: number): CanvasRenderingContext2D | null => {
       if (canvas === null || width === 0) return null
 
       const w = Math.max(1, Math.round(width * dpr))
-      const h = Math.max(1, Math.round(height * dpr))
+      const h = Math.max(1, Math.round(canvasHeight * dpr))
 
       // Assigning either one reallocates the backing store even when the value
       // is unchanged, which the spine layer would otherwise pay on every frame
@@ -572,7 +667,7 @@ export function SmallMultiples({
       ctx.clearRect(0, 0, w, h)
       return ctx
     },
-    [width, height],
+    [width, canvasHeight],
   )
 
   // Layer 1 — the ladders. A rule per *step*, in that step's state colour, at a
@@ -585,8 +680,8 @@ export function SmallMultiples({
 
     ctx.lineWidth = dpr
 
-    panels.forEach((panel, index) => {
-      const band = bandOf(index, panel, dpr)
+    panels.forEach((panel, local) => {
+      const band = bandOf(first + local, panel, dpr)
 
       for (let row = 0; row < panel.steps.length; row++) {
         const y = band.panelY + (PANEL_TOP + (row + 0.5) * rowPitch) * dpr
@@ -613,7 +708,7 @@ export function SmallMultiples({
     })
 
     ctx.globalAlpha = 1
-  }, [panels, prepare, bandOf, rowPitch, labelWidth, palette])
+  }, [panels, first, prepare, bandOf, rowPitch, labelWidth, palette])
 
   /*
    * Layer 2 — the cohorts. The expensive one, and the one that changes least:
@@ -625,13 +720,66 @@ export function SmallMultiples({
    * function of y and one gradient per step reproduces it exactly. It also means
    * the fade has to be mixed into the colours beforehand, since that path never
    * sees `PaintOptions.fade`.
+   *
+   * When only the window has moved, the rows it still covers are copied across
+   * rather than repainted — shifted by however far the window's top moved — and
+   * only the rows that just came into it are drawn. Scrolling therefore costs
+   * the rows it reveals, not the whole window. Anything else changing (a panel,
+   * the colours, the layout) repaints the lot.
    */
+  // Everything a painted panel's pixels depend on except where the window is.
+  const linesStyle = useMemo(
+    () => ({}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lineOpacity, lineColors, rectOf, labelWidth, rowPitch, xDomain, background],
+  )
+  const linesPainted = useRef<{
+    canvas: HTMLCanvasElement
+    style: object
+    dpr: number
+    top: number
+    first: number
+    panels: readonly Panel[]
+  } | null>(null)
+  const linesCopy = useRef<HTMLCanvasElement | null>(null)
+
   useEffect(() => {
     const dpr = window.devicePixelRatio || 1
-    const ctx = prepare(linesRef.current, dpr)
-    if (ctx === null) return
+    const canvas = linesRef.current
+    const before = linesPainted.current
 
-    panels.forEach((panel, index) => {
+    let kept: { from: number; to: number; shift: number; copy: HTMLCanvasElement } | null = null
+    if (
+      canvas !== null &&
+      before !== null &&
+      before.canvas === canvas &&
+      before.style === linesStyle &&
+      before.dpr === dpr
+    ) {
+      const from = Math.max(first, before.first)
+      const to = Math.min(first + panels.length, before.first + before.panels.length)
+      const shift = (before.top - canvasTop) * dpr
+      // A fractional shift would resample the copy, and blur it.
+      let same = to > from && Number.isInteger(shift)
+      for (let index = from; same && index < to; index++) {
+        same = panels[index - first] === before.panels[index - before.first]
+      }
+      if (same) {
+        const copy = (linesCopy.current ??= document.createElement("canvas"))
+        copy.width = canvas.width
+        copy.height = canvas.height
+        copy.getContext("2d")?.drawImage(canvas, 0, 0)
+        kept = { from, to, shift, copy }
+      }
+    }
+
+    const ctx = prepare(canvas, dpr)
+    if (ctx === null || canvas === null) return
+    if (kept !== null) ctx.drawImage(kept.copy, 0, kept.shift)
+
+    panels.forEach((panel, local) => {
+      const index = first + local
+      if (kept !== null && index >= kept.from && index < kept.to) return
       paintGeometry(ctx, panel.geometry, {
         ...bandOf(index, panel, dpr),
         opacity: lineOpacity,
@@ -639,7 +787,9 @@ export function SmallMultiples({
         rowColors: panel.steps.map((state) => lineColors[state] ?? "currentColor"),
       })
     })
-  }, [panels, prepare, bandOf, lineOpacity, lineColors])
+
+    linesPainted.current = { canvas, style: linesStyle, dpr, top: canvasTop, first, panels }
+  }, [panels, first, canvasTop, linesStyle, prepare, bandOf, lineOpacity, lineColors])
 
   // Layer 3 — the summaries, and whatever is being pointed at. Cheap by
   // construction: a handful of spines per panel, and one cluster's members.
@@ -676,7 +826,8 @@ export function SmallMultiples({
         return geometries
       }
 
-      panels.forEach((panel, index) => {
+      panels.forEach((panel, local) => {
+        const index = first + local
         const band = bandOf(index, panel, dpr)
         const colors = panel.steps.map((state) => palette.css[state] ?? "currentColor")
 
@@ -723,7 +874,7 @@ export function SmallMultiples({
             })
           })
         } else {
-          paintGeometry(ctx, spines[index] ?? null, {
+          paintGeometry(ctx, spines[local] ?? null, {
             ...band,
             opacity: spineOpacity,
             lineWidth: SPINE_WIDTH * dpr,
@@ -744,6 +895,7 @@ export function SmallMultiples({
     },
     [
       panels,
+      first,
       spines,
       lit,
       focus,
@@ -797,8 +949,8 @@ export function SmallMultiples({
    */
   const clusterAt = useCallback(
     (index: number, clientX: number, clientY: number, rect: DOMRect): number | null => {
-      const panel = panels[index]
-      const pick = spineIndex[index]
+      const panel = panels[index - first]
+      const pick = spineIndex[index - first]
       if (panel === undefined || pick === undefined || pick === null || clusterRun === null) {
         return null
       }
@@ -817,7 +969,7 @@ export function SmallMultiples({
       const cluster = clusterRun.clusterOfPatient[patient] ?? -1
       return cluster >= 0 ? cluster : null
     },
-    [panels, spineIndex, clusterRun, labelWidth, xDomain, rowPitch],
+    [panels, first, spineIndex, clusterRun, labelWidth, xDomain, rowPitch],
   )
 
   const handleMove = useCallback(
@@ -843,26 +995,35 @@ export function SmallMultiples({
     [settler, setHoveredCluster],
   )
 
-  if (store === null || panels.length === 0) return null
+  if (store === null || shown.length === 0) return null
+
+  // The canvases sit on the window, not the grid. `top` keeps the stylesheet's
+  // offset, which lines the pixels up with the DOM labels over them.
+  const canvasStyle = {
+    width,
+    height: canvasHeight,
+    top: `calc(var(--gap-small) + ${canvasTop}px)`,
+  }
 
   return (
     <div className="multiples">
-      <div className="multiples__grid" style={{ height }}>
+      <div ref={setGrid} className="multiples__grid" style={{ height }}>
         {/*
-         * Three layers, one grid. Only the middle one carries the cost, and it
+         * Three layers, one window. Only the middle one carries the cost, and it
          * is the one a hover never touches: the dim is a composited opacity on
          * an element whose pixels the browser already has.
          */}
-        <canvas ref={rulesRef} className="multiples__canvas" style={{ width, height }} />
+        <canvas ref={rulesRef} className="multiples__canvas" style={canvasStyle} />
         <canvas
           ref={linesRef}
           className="multiples__canvas multiples__canvas--lines"
-          style={{ width, height, opacity: dimmed ? DIM_ELEMENT_OPACITY : 1 }}
+          style={{ ...canvasStyle, opacity: dimmed ? DIM_ELEMENT_OPACITY : 1 }}
         />
-        <canvas ref={spinesRef} className="multiples__canvas" style={{ width, height }} />
+        <canvas ref={spinesRef} className="multiples__canvas" style={canvasStyle} />
 
-        {/* Labels and hit areas as DOM, over one canvas of pixels. */}
-        {panels.map((panel, index) => {
+        {/* Labels and hit areas as DOM, over one canvas of pixels — the window's only. */}
+        {panels.map((panel, local) => {
+          const index = first + local
           const rect = rectOf(index)
           const onSpine = focusSpine?.panel === index
           const clustered = clusterRun?.byTypology.has(panel.typology.key) === true
@@ -975,9 +1136,10 @@ export function SmallMultiples({
         })}
 
         {/* Detailed cards label their own rules in the gutter already. */}
-        {labelWidth === 0 && reference !== null && panels[reference] !== undefined && (
+        {labelWidth === 0 && reference !== null && panels[reference - first] !== undefined && (
           <ReferenceLabels
             panels={panels}
+            first={first}
             reference={reference}
             rectOf={rectOf}
             rowPitch={rowPitch}
@@ -985,15 +1147,77 @@ export function SmallMultiples({
           />
         )}
       </div>
-
-      {hiddenCount > 0 && (
-        <p className="multiples__more">
-          +{hiddenCount.toLocaleString()} more — a grid past {MAX_PANELS} panels is no more readable
-          than the overlay it replaced.
-        </p>
-      )}
     </div>
   )
+}
+
+/** One card's worth of the grid: its ladder, and the cohort drawn on it. */
+interface Panel {
+  readonly typology: Typology
+  readonly steps: readonly number[]
+  readonly repeated: readonly boolean[]
+  readonly labels: readonly string[]
+  readonly rows: Float32Array
+  /** Members passing the filters. */
+  readonly size: number
+  /** Of those, how many are drawn — fewer once the cohort is past `budget`. */
+  readonly drawn: number
+  readonly geometry: Geometry
+}
+
+/**
+ * A row per step of the sequence, and geometry for the members of it that
+ * survive the filters.
+ *
+ * `rowsFrom: "position"` in `options` puts the step index in the buffer where
+ * the state id normally goes, so the row lookup is the identity and a revisited
+ * state cannot collapse onto its first appearance.
+ */
+function buildPanel(
+  store: TrajectoryStore,
+  typology: Typology,
+  mask: Uint8Array | null,
+  budget: number,
+  options: GeometryOptions,
+): Panel {
+  const steps = Array.from(typology.states)
+  const rows = new Float32Array(steps.length)
+  for (let i = 0; i < steps.length; i++) rows[i] = i
+
+  const members: number[] = []
+  for (let i = 0; i < typology.patients.length; i++) {
+    const patient = typology.patients[i] as number
+    if (mask === null || mask[patient] === 1) members.push(patient)
+  }
+
+  /*
+   * Every nth member, when there are more than the panel can show. A stride
+   * over a list in patient order is an unbiased sample of the cohort, and a
+   * fixed one keeps the picture identical between repaints — a random sample
+   * would reshuffle the panel every time the layout changed.
+   */
+  const stride = Math.max(1, Math.ceil(members.length / budget))
+  const drawn = stride === 1 ? members : members.filter((_, i) => i % stride === 0)
+
+  return {
+    typology,
+    steps,
+    repeated: repeatedSteps(typology.states),
+    labels: sequenceLabels(typology.states, store.stateNames),
+    rows,
+    size: members.length,
+    drawn: drawn.length,
+    geometry: buildGeometry(store, Uint32Array.from(drawn), options),
+  }
+}
+
+/** The nearest ancestor that scrolls vertically, or `null` for the page itself. */
+function scrollParent(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node !== null; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node)
+    if (overflowY === "auto" || overflowY === "scroll") return node
+  }
+  return null
 }
 
 /** Where a rule sits in its card, in CSS pixels from the card's top. */
@@ -1018,6 +1242,7 @@ const ruleY = (row: number, rowPitch: number): number => PANEL_TOP + (row + 0.5)
  */
 function ReferenceLabels({
   panels,
+  first,
   reference,
   rectOf,
   rowPitch,
@@ -1028,12 +1253,14 @@ function ReferenceLabels({
     readonly steps: readonly number[]
     readonly labels: readonly string[]
   }[]
+  /** Grid index of `panels[0]`; `reference` and `rectOf` take grid indices. */
+  readonly first: number
   readonly reference: number
   readonly rectOf: (index: number) => { left: number; top: number; width: number }
   readonly rowPitch: number
   readonly palette: readonly string[]
 }): React.JSX.Element {
-  const hovered = panels[reference] as (typeof panels)[number]
+  const hovered = panels[reference - first] as (typeof panels)[number]
   const anchor = rectOf(reference)
   const onLeft = anchor.left > 0
   // Same grid row either way: a card with something on its left is not first
@@ -1057,7 +1284,8 @@ function ReferenceLabels({
         </span>
       ))}
 
-      {panels.map((panel, index) => {
+      {panels.map((panel, local) => {
+        const index = first + local
         if (index === reference) return null
         const rect = rectOf(index)
 

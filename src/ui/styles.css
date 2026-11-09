@@ -183,6 +183,7 @@ body {
   display: flex;
   flex-direction: column;
   place-items: center;
+  background-color: var(--bg);
 }
 
 /* ---------- loader ---------- */
@@ -3083,4 +3084,35 @@ body {
 .multiples__export[data-shown="true"][aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ---------- quick exports on the charts ---------- */
+
+.background {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ---------- cohort grid (landing background) ---------- */
+
+.cohort-grid {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+.cohort-grid canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Dimmed so the landing text stays readable; the overlay redraws the hovered
+   cell from this canvas at full strength. */
+.cohort-grid__base {
+  opacity: 0.35;
 }

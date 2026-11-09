@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.env
+*.log
+.DS_Store
+tsconfig.tsbuildinfo
+# Local-only stress dataset (191 MB); vite.config.ts drops it from the build anyway
+public/data/generated/data_1m.json
