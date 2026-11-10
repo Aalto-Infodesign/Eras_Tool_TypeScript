@@ -1426,6 +1426,7 @@ body {
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 4px;
+  min-height: 200px;
 }
 .board__column {
   flex: 0 0 200px;
@@ -1460,6 +1461,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  max-height: 225px;
+  overflow-y: scroll;
 }
 .board__option {
   position: relative;
@@ -1531,6 +1534,8 @@ body {
 .board__map {
   border-top: 1px solid var(--line);
   padding-top: var(--gap);
+  display: flex;
+  gap: var(--gap);
 }
 .pathmap {
   display: block;
@@ -2892,7 +2897,15 @@ body {
   align-items: center;
   gap: 8px 12px;
 }
+/* The walk and the expectations on the left; the coverage gauge down the right
+   edge, as tall as everything beside it. */
 .board__selection {
+  display: flex;
+  gap: 14px;
+}
+.board__chosen {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2900,47 +2913,63 @@ body {
 
 /* ---------- path explorer: coverage bar ---------- */
 
-/* One line: the share, the stacked bar, and the count it stands for. */
+/* One column: the share on top, the stacked bar filling up from the bottom, and
+   the count it stands for underneath. */
 .coverage {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  width: 6.5em;
   font-size: 11px;
   color: var(--muted);
+  text-align: center;
+  position: relative;
+  max-height: 64px;
 }
 .coverage__share {
-  min-width: 4em;
   color: var(--text);
   font-family: ui-monospace, monospace;
   font-size: 11px;
   font-weight: 600;
+  position: absolute;
+  top: 0.2rem;
 }
 .coverage__bar {
   flex: 1;
   display: flex;
+  /* The first segment, the biggest, sits on the floor. */
+  flex-direction: column-reverse;
   gap: 2px;
-  height: 8px;
-  border-radius: 999px;
+  width: 64px;
+  min-height: 64px;
+  max-height: 64px;
+  border-radius: 5px;
   background: var(--line);
   overflow: hidden;
 }
-/* One per route, biggest first; each slides to its new width as the set changes. */
+/* One per route, biggest first; each slides to its new height as the set changes. */
 .coverage__segment {
   flex: 0 0 auto;
   background: var(--accent);
-  transition: width 0.25s ease-out;
+  transition: height 0.25s ease-out;
 }
 .coverage__segment:hover {
   background: color-mix(in srgb, var(--accent) 70%, var(--text));
 }
 .coverage__caption {
-  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+  position: absolute;
+  bottom: 0.2rem;
 }
 .coverage__caption b {
   color: var(--text);
   font-weight: 600;
 }
 .coverage__note {
+  margin-top: 2px;
   opacity: 0.8;
 }
 
@@ -2951,6 +2980,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  max-width: 300px;
 }
 .expectation {
   display: flex;

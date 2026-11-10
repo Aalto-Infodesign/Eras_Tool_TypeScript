@@ -612,7 +612,7 @@ function ChartStats({
       <span>
         {layers.medoids && (
           <>
-            <b>{medoidCount.toLocaleString()}</b> medoids ·{" "}
+            <b>{medoidCount.toLocaleString()}</b> clust. ·{" "}
           </>
         )}
         {layers.lumps && (
@@ -620,7 +620,7 @@ function ChartStats({
             <b>{lumpCount}</b> lumps ·{" "}
           </>
         )}
-        <b>{segmentCount.toLocaleString()}</b> segments
+        <b>{segmentCount.toLocaleString()}</b> seg. ·{" "}
       </span>
       {staleClusters && (
         <span
@@ -637,17 +637,18 @@ function ChartStats({
        * the store and the buffers, and this says so without a debugger.
        */}
       <span key={selectionVersion}>
-        <b>{(selection?.count ?? 0).toLocaleString()}</b> / {cohortSize.toLocaleString()} patients
+        <b>{(selection?.count ?? 0).toLocaleString()}</b> patients
+        {/* / {cohortSize.toLocaleString()}  */}
       </span>
-      <span>
+      {/* <span>
         <b>{rowCount}</b> rows
-      </span>
+      </span> */}
       {highlightCount > 0 && (
         <span className="chart__stats-hover">
           <b>{highlightCount.toLocaleString()}</b> in this cluster
         </span>
       )}
-      {focused !== null && (
+      {/* {focused !== null && (
         <TypologyChip
           label={focused}
           states={rowStates}
@@ -655,7 +656,7 @@ function ChartStats({
           palette={palette}
           onClear={clearTypologies}
         />
-      )}
+      )} */}
       {isIsolated && (
         <button
           type="button"

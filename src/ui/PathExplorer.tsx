@@ -287,8 +287,10 @@ function SaveExpectation({ walk }: { readonly walk: PathWalk }): React.JSX.Eleme
 
 /**
  * How much of the cohort the selection covers, as one stacked bar — the
- * original's selection pie, brought to the path explorer and laid flat so it
- * costs a line rather than a block.
+ * original's selection pie, brought to the path explorer and stood upright
+ * along the selection's right edge, so it reads as a gauge beside the walk and
+ * the expectations it measures rather than one more row under them. It fills
+ * from the bottom.
  *
  * One segment per route: the walk in progress and each expectation switched on,
  * as far as `frontier` keeps them apart (a route inside another is counted in
@@ -312,7 +314,7 @@ function Coverage({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
       names.set(row.node, row.expectation.name)
   }
 
-  // Biggest first from the left, so the segments read as a sorted breakdown.
+  // Biggest first from the bottom, so the segments read as a sorted breakdown.
   const segments = frontier
     .map((id) => {
       const node = tree.nodes[id] as PathNode
@@ -337,23 +339,24 @@ function Coverage({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
             <span
               key={segment.id}
               className="coverage__segment"
-              style={{ width: `${(segment.size / total) * 100}%` }}
+              style={{ height: `${(segment.size / total) * 100}%` }}
               title={`${segment.label} · ${segment.size.toLocaleString()} patients (${formatShare((segment.size / total) * 100)})`}
             />
           ))}
       </div>
       <span className="coverage__caption">
         {isEverything ? (
-          "Whole cohort"
+          <b>
+            Whole <br /> cohort
+          </b>
         ) : (
-          <>
-            <b>{size.toLocaleString()}</b> of {total.toLocaleString()} patients
-          </>
+          <b>
+            {size.toLocaleString()} / {total.toLocaleString()}
+          </b>
         )}
         {total < cohortSize && (
           <span className="coverage__note">
-            {" "}
-            · filters keep {total.toLocaleString()} of {cohortSize.toLocaleString()}
+            filters keep {total.toLocaleString()} of {cohortSize.toLocaleString()}
           </span>
         )}
       </span>
@@ -363,7 +366,7 @@ function Coverage({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
 
 /** A share to one decimal; a sliver keeps enough digits not to read as zero. */
 const formatShare = (percent: number): string =>
-  `${percent.toFixed(percent > 0 && percent < 1 ? 2 : 1)}%`
+  `${percent.toFixed(percent > 0 && percent < 1 ? 2 : percent === 100 ? 0 : 1)}%`
 
 /**
  * The saved walks: a switch to merge each into the selection, its path as
@@ -534,20 +537,23 @@ function PathBoard({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
        */}
       <div className="board__flow">
         <div className="board__selection">
-          <div className="board__walk">
-            <PathFlow
-              tree={tree}
-              steps={steps}
-              levels={levels}
-              palette={palette.css}
-              stateNames={stateNames}
-              onStep={selectPath}
-              showCounts
-            />
-            <SaveExpectation walk={walk} />
-          </div>
-          <ExpectationList walk={walk} />
           <Coverage walk={walk} />
+          <div className="board__chosen">
+            <div className="board__walk">
+              <PathFlow
+                tree={tree}
+                steps={steps}
+                levels={levels}
+                palette={palette.css}
+                stateNames={stateNames}
+                onStep={selectPath}
+                showCounts
+              />
+              <SaveExpectation walk={walk} />
+            </div>
+            {/* <ExpectationList walk={walk} /> */}
+          </div>
+          {/* Down the right edge, as tall as the walk and the expectations it measures. */}
         </div>
       </div>
 
@@ -629,10 +635,11 @@ function PathBoard({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
         <PathMinimap
           tree={tree}
           frontier={frontier}
-          width={width}
+          width={width - 310}
           height={MAP_HEIGHT_EXPANDED}
           palette={palette.css}
         />
+        <ExpectationList walk={walk} />
       </footer>
     </div>
   )
