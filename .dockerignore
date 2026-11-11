@@ -7,3 +7,4 @@ dist
 tsconfig.tsbuildinfo
 # Local-only stress dataset (191 MB); vite.config.ts drops it from the build anyway
 public/data/generated/data_1m.json
+public/data/generated/data_250k.json

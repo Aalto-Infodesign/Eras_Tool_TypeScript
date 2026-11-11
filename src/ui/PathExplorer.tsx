@@ -286,45 +286,21 @@ function SaveExpectation({ walk }: { readonly walk: PathWalk }): React.JSX.Eleme
 }
 
 /**
- * How much of the cohort the selection covers, as one stacked bar — the
+ * How much of the cohort the selection covers, as one filled bar — the
  * original's selection pie, brought to the path explorer and stood upright
  * along the selection's right edge, so it reads as a gauge beside the walk and
  * the expectations it measures rather than one more row under them. It fills
  * from the bottom.
- *
- * One segment per route: the walk in progress and each expectation switched on,
- * as far as `frontier` keeps them apart (a route inside another is counted in
- * the outer one). So the bar answers both "how much do my expectations cover"
- * and "how much of that is each of them", the second on hover.
  *
  * The denominator is the tree's: the cohort as the filters leave it, which is
  * the whole dataset until a filter is set — and the caption says when it is not.
  */
 function Coverage({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
   const cohortSize = useEras((s) => s.cohortSize)
-  const { tree, frontier, size, steps, levels, expectations, stateNames } = walk
+  const { tree, frontier, size } = walk
   const total = tree.total
   const share = total === 0 ? 0 : (size / total) * 100
   const isEverything = frontier.length === 1 && frontier[0] === 0
-
-  const names = new Map<number, string>()
-  if (steps.length > 0) names.set(levels.at(-1) as number, "Current walk")
-  for (const row of expectations) {
-    if (row.active && row.node !== null && !names.has(row.node))
-      names.set(row.node, row.expectation.name)
-  }
-
-  // Biggest first from the bottom, so the segments read as a sorted breakdown.
-  const segments = frontier
-    .map((id) => {
-      const node = tree.nodes[id] as PathNode
-      return {
-        id,
-        size: node.size,
-        label: names.get(id) ?? stateNames[node.state] ?? "Whole cohort",
-      }
-    })
-    .sort((a, b) => b.size - a.size)
 
   return (
     <div className="coverage">
@@ -334,15 +310,7 @@ function Coverage({ walk }: { readonly walk: PathWalk }): React.JSX.Element {
         role="img"
         aria-label={`${formatShare(share)} of ${total.toLocaleString()} patients`}
       >
-        {total > 0 &&
-          segments.map((segment) => (
-            <span
-              key={segment.id}
-              className="coverage__segment"
-              style={{ height: `${(segment.size / total) * 100}%` }}
-              title={`${segment.label} · ${segment.size.toLocaleString()} patients (${formatShare((segment.size / total) * 100)})`}
-            />
-          ))}
+        <span className="coverage__fill" style={{ height: `${share}%` }} />
       </div>
       <span className="coverage__caption">
         {isEverything ? (

@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { clusterStale, focusedTypologyOf, useEras } from "../app/store.ts"
+import { clusterStale, useEras } from "../app/store.ts"
 import type { Geometry } from "../core/render/geometry.ts"
 import { SegmentIndex } from "../core/render/picking.ts"
 import type { Palette } from "../core/render/palette.ts"
 import type { ViewState } from "../core/render/Renderer.ts"
-import { repeatedSteps } from "../core/stats/silhouettes.ts"
 import { ChartControls } from "./ChartControls.tsx"
 import { ChartGrid } from "./ChartGrid.tsx"
 import { LumpLayer } from "./LumpLayer.tsx"
 import { SmallMultiples } from "./SmallMultiples.tsx"
 import { StateBoxPlots } from "./StateBoxPlots.tsx"
 import { TrajectoryOverlay } from "./TrajectoryOverlay.tsx"
-import { StateDots } from "./StateDots.tsx"
 import { createHoverSettler, DIM_FADE, HIGHLIGHT_OPACITY } from "./hover.ts"
 import { useAnimatedScalar, useAnimatedView } from "./useAnimatedView.ts"
 import { useChartLayers } from "./useChartLayers.ts"
@@ -565,15 +563,11 @@ function BackButton(): React.JSX.Element {
 }
 
 function ChartStats({
-  rowCount,
   isIsolated,
   segmentCount,
   lumpCount,
   medoidCount,
   highlightCount,
-  rowStates,
-  rowLabels,
-  palette,
 
   indexing,
 }: {
@@ -593,12 +587,9 @@ function ChartStats({
   const layers = useEras((s) => s.layers)
   const staleClusters = useEras(clusterStale)
   const selection = useEras((s) => s.selection)
-  const cohortSize = useEras((s) => s.cohortSize)
   const selectionVersion = useEras((s) => s.selectionVersion)
   const clearClusters = useEras((s) => s.clearClusters)
-  const selectedTypologies = useEras((s) => s.selectedTypologies)
-  const clearTypologies = useEras((s) => s.clearTypologies)
-  const focused = focusedTypologyOf(selectedTypologies)
+  // const selectedTypologies = useEras((s) => s.selectedTypologies)
 
   // Sampled on a timer, not per frame, so the readout never drives the render loop.
   // const [frameMs, setFrameMs] = useState(0)
@@ -671,48 +662,6 @@ function ChartStats({
       {indexing && <span className="chart__stats-pending">indexing…</span>}
       <ChartControls />
     </div>
-  )
-}
-
-/**
- * Which typology is on screen, as its own colour run.
- *
- * A key is a long string and the stats line is one row of small text, so the
- * chip carries the same dots the small-multiple card did — the thing you clicked
- * and the thing that says where you are look alike. `StateDots` owns the reveal,
- * which is what keeps the two identical.
- */
-function TypologyChip({
-  label,
-  states,
-  labels,
-  palette,
-  onClear,
-}: {
-  label: string
-  states: readonly number[]
-  labels: readonly string[]
-  palette: Palette
-  onClear: () => void
-}): React.JSX.Element {
-  const repeated = useMemo(() => repeatedSteps(states), [states])
-
-  return (
-    <button
-      type="button"
-      className="chart__stats-isolated chart__stats-chip"
-      aria-label={`${label} — back to the grid`}
-      onClick={onClear}
-    >
-      <StateDots
-        states={states}
-        labels={labels}
-        repeated={repeated}
-        palette={palette}
-        hint="click to go back to the grid"
-      />
-      <span aria-hidden="true">✕</span>
-    </button>
   )
 }
 
