@@ -2,8 +2,8 @@ node_modules
 dist
 *.local
 .DS_Store
-public/data/generated
-!public/data/generated/data_250k.json
+public/data/generated/data_1m.json
+
 
 # Sources are TypeScript only; Vite compiles them on the fly. A .js here is
 # stray tsc output, and Vite would pick vite.config.js over vite.config.ts.
